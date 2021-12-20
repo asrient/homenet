@@ -1,0 +1,12 @@
+{
+    "files.associations": {
+        "*.java": "java",
+        "strings.h": "c",
+        "string.h": "c",
+        "system_error": "c",
+        "sstream": "c",
+        "util.h": "c",
+        "utils.h": "c",
+        "evp.h": "c"
+    }
+}
