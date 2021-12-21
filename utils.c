@@ -254,6 +254,23 @@ void list_remove(List* store, void* data){
     return 0;
 }
 
+int list_cleanup(List* store){
+    ListNode* i=store->start;
+    ListNode* next;
+    while(i){
+        next=i->next;
+        free(i);
+        i=next;
+    }
+    return 1;
+}
+
+int list_init(List* store){
+    store->start=NULL;
+    store->count=0;
+    return 1;
+}
+
 void* list_forEach(List* store){
     static ListNode* node=NULL;
     if(store){
@@ -277,7 +294,7 @@ void buffer_init(Buffer* buffer, int capacity){
     buffer->startIndex=0;
 }
 
-int buffer_reset(Buffer* buffer){
+int buffer_cleanup(Buffer* buffer){
     free(buffer->data);
     buffer->data=NULL;
     buffer->size=0;
@@ -311,6 +328,18 @@ int buffer_write(Buffer* buffer, char* data, int size){
     return size;
 }
 
+int buffer_clear(Buffer* buffer, int n){
+    if(n>buffer->size){
+        n=buffer->size;
+    }
+    buffer->size-=n;
+    buffer->startIndex+=n;
+    if(buffer->startIndex>=buffer->capacity){
+        buffer->startIndex=buffer->capacity-buffer->startIndex;
+    }
+    return n;
+}
+
 int buffer_read(Buffer* buffer, char* data, int size){
     if(buffer->size==0 || size==0){
         return 0;
@@ -326,10 +355,27 @@ int buffer_read(Buffer* buffer, char* data, int size){
             ind=0;
         }
     }
-    buffer->size-=size;
-    buffer->startIndex+=size;
-    if(buffer->startIndex>=buffer->capacity){
-        buffer->startIndex=buffer->capacity-buffer->startIndex;
+    return buffer_clear(buffer,size);
+}
+
+char* buffer_readChar(Buffer* buffer){
+    static Buffer* sBuffer=NULL;
+    static int ind=0;
+    if(buffer){
+        sBuffer=buffer;
+        ind=sBuffer->startIndex;
     }
-    return size;
+    char* c=sBuffer->data[ind];
+    ind++;
+    if(ind>=sBuffer->capacity){
+        ind=0;
+    }
+    if(!buffer&&ind==sBuffer->startIndex){
+        return NULL;
+    }
+    return c;
+}
+
+int buffer_isEmpty(Buffer* buffer){
+    return buffer->size==0;
 }

@@ -90,6 +90,10 @@ void list_remove(List* store, void* data);
 
 void* list_forEach(List* store);
 
+int list_init(List* store);
+
+int list_cleanup(List* store);
+
 struct Buffer{
     char* data;
     int size;
@@ -99,11 +103,14 @@ struct Buffer{
 
 typedef struct Buffer Buffer;
 
-#define DEFAULT_BUFFER_SIZE 1024;
+#define DEFAULT_BUFFER_SIZE 1024
 
 void buffer_init(Buffer* buffer, int capacity);
-int buffer_reset(Buffer* buffer);
+int buffer_cleanup(Buffer* buffer);
 int buffer_getFreeSpace(Buffer* buffer);
 void buffer_print(Buffer* buffer);
 int buffer_write(Buffer* buffer, char* data, int size);
+int buffer_clear(Buffer* buffer, int n);
 int buffer_read(Buffer* buffer, char* data, int size);
+char* buffer_readChar(Buffer* buffer);
+int buffer_isEmpty(Buffer* buffer);
