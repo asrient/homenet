@@ -148,7 +148,6 @@ sock->type=type;
 bzero(&(sock->ipAddr), sizeof(sock->ipAddr));
 sock->isServer=0;
 sock->isBlocking=1;
-sock->remove=0;
 sock->isAlive=SOCKET_ALIVE;
 sock->listenForWritable=0;
 sock->listenForReadable=0;
@@ -342,18 +341,26 @@ int createTcpServer( Socket* sock, int port){
     return 1;
 }
 
-int waitForEvent(Socket* selectedSock, List* socketList){
+int waitForEvent(Socket** selectedSock, List* socketList){
  static List* list;
     static int maxFd=0;
     static struct fd_set readSet;
     static struct fd_set writeSet;
     static int fdsToProcess=0;
+    static Socket* sockToRemove=NULL;
     struct timeval timeout;
     if(socketList){
         list=socketList;
+        sockToRemove=NULL;
         fdsToProcess=0;
     }
-    else if(fdsToProcess){
+    if(sockToRemove){
+        sock_cleanup(sockToRemove);
+        list_remove(list,sockToRemove);
+        free(sockToRemove);
+        sockToRemove=NULL;
+    }
+    if(fdsToProcess){
 // handle prev result of select
 Socket* sock=(Socket*) list_forEach(list);
     while(sock&&fdsToProcess>0){
@@ -363,7 +370,7 @@ Socket* sock=(Socket*) list_forEach(list);
                 if(sock_acceptNew(newSock,sock)){
                     sock_setNonBlocking(newSock);
                     list_add(list,newSock);
-                    selectedSock=newSock;
+                    *selectedSock=newSock;
                     return SOCK_EVENT_NEW;
                 }
                 else{
@@ -376,7 +383,7 @@ Socket* sock=(Socket*) list_forEach(list);
             else{
                 FD_CLR(sock->fd, &readSet);
                 fdsToProcess--;
-                selectedSock=sock;
+                *selectedSock=sock;
             //check for server accept
             return SOCK_EVENT_READ;
             }
@@ -399,16 +406,10 @@ Socket* sock=(Socket*) list_forEach(list);
     FD_ZERO(&writeSet);
     maxFd=0;
     Socket* sock=(Socket*) list_forEach(list);
-    Socket* sockToRemove=NULL;
     while(sock){
-        if(sock->remove){
-            // socket must not be freed while list_forEach is in use
-        sockToRemove=sock;
-        break;
-        }
         if(sock->isAlive==SOCKET_DEAD){
-            selectedSock=sock;
-            sock->remove=1;
+            *selectedSock=sock;
+            sockToRemove=sock;
             return SOCK_EVENT_CLOSE;
         }
         if(sock->isAlive==SOCKET_WILLDIE){
@@ -428,12 +429,6 @@ Socket* sock=(Socket*) list_forEach(list);
             maxFd=sock->fd;
         }
          sock=(Socket*) list_forEach(NULL);
-    }
-    if(sockToRemove){
-        sock_cleanup(sockToRemove);
-        list_remove(list,sockToRemove);
-        free(sockToRemove);
-        return waitForEvent(selectedSock,NULL);
     }
     timeout.tv_sec  = SELECT_TIMEOUT_SEC;
    timeout.tv_usec = 0;

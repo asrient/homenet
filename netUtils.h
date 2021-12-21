@@ -38,7 +38,6 @@ struct sockaddr ipAddr; //Remote ip for conn, my ip for server
 int isServer;
 int isBlocking;
 int isAlive; //2 if alive, 1 if close after send, 0 if closed
-int remove;
 int listenForWritable;
 int listenForReadable;
 Buffer writeBuffer;
