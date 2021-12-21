@@ -38,6 +38,7 @@ struct sockaddr ipAddr; //Remote ip for conn, my ip for server
 int isServer;
 int isBlocking;
 int isAlive; //2 if alive, 1 if close after send, 0 if closed
+int remove;
 int listenForWritable;
 int listenForReadable;
 Buffer writeBuffer;
@@ -46,6 +47,7 @@ Buffer writeBuffer;
 typedef struct Socket Socket;
 
 Socket* sock_init(Socket* sock,int type, int fd);
+void sock_copy(Socket* to, Socket* from);
 int sock_cleanup(Socket* sock);
 int sock_setNonBlocking( Socket* sock);
 int sock_write( Socket* sock, char* data, int n);

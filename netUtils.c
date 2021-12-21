@@ -148,11 +148,16 @@ sock->type=type;
 bzero(&(sock->ipAddr), sizeof(sock->ipAddr));
 sock->isServer=0;
 sock->isBlocking=1;
+sock->remove=0;
 sock->isAlive=SOCKET_ALIVE;
 sock->listenForWritable=0;
 sock->listenForReadable=0;
 buffer_init(&(sock->writeBuffer),DEFAULT_BUFFER_SIZE);
 return sock;
+}
+
+void sock_copy(Socket* to, Socket* from){
+memcpy(to,from,sizeof(Socket));
 }
 
 int sock_cleanup(Socket* sock){
@@ -394,10 +399,16 @@ Socket* sock=(Socket*) list_forEach(list);
     FD_ZERO(&writeSet);
     maxFd=0;
     Socket* sock=(Socket*) list_forEach(list);
+    Socket* sockToRemove=NULL;
     while(sock){
+        if(sock->remove){
+            // socket must not be freed while list_forEach is in use
+        sockToRemove=sock;
+        break;
+        }
         if(sock->isAlive==SOCKET_DEAD){
             selectedSock=sock;
-            list_remove(list,sock);
+            sock->remove=1;
             return SOCK_EVENT_CLOSE;
         }
         if(sock->isAlive==SOCKET_WILLDIE){
@@ -406,9 +417,7 @@ Socket* sock=(Socket*) list_forEach(list);
             }
             else{
             sock_close(sock);
-            selectedSock=sock;
-            list_remove(list,sock);
-            return SOCK_EVENT_CLOSE;
+            return waitForEvent(selectedSock,NULL);
             }
         }
         if(sock->listenForReadable)
@@ -419,6 +428,12 @@ Socket* sock=(Socket*) list_forEach(list);
             maxFd=sock->fd;
         }
          sock=(Socket*) list_forEach(NULL);
+    }
+    if(sockToRemove){
+        sock_cleanup(sockToRemove);
+        list_remove(list,sockToRemove);
+        free(sockToRemove);
+        return waitForEvent(selectedSock,NULL);
     }
     timeout.tv_sec  = SELECT_TIMEOUT_SEC;
    timeout.tv_usec = 0;
