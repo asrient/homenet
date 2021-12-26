@@ -1,6 +1,9 @@
 #include <netinet/in.h>
 #include "utils.h"
 
+#ifndef HN_NET_UTILS_H
+#define HN_NET_UTILS_H
+
 #define IPADDR_SIZE  INET6_ADDRSTRLEN > INET_ADDRSTRLEN ? INET6_ADDRSTRLEN : INET_ADDRSTRLEN
 
 int str_toIpAddr(char* str, struct sockaddr* ip);
@@ -55,7 +58,10 @@ int sock_close( Socket* sock);
 int sock_acceptNew(Socket* sock, Socket* server);
 int sock_done(Socket* sock);
 int createTcpConnection( Socket* sock, struct sockaddr* ip);
-int getMyIpAddr(Socket* sock, struct sockaddr* ip);
+int sock_getMyIpAddr(Socket* sock, struct sockaddr* ip);
+int getLocalIpAddr(struct sockaddr_in* ip, char* interfaceName);
 int createTcpServer( Socket* sock, int port);
-int waitForEvent(Socket* selectedSock, List* socketList);
+int waitForEvent(Socket** selectedSock, List* socketList);
 int dns_getIpAddr(struct sockaddr* ip, char* str);
+
+#endif

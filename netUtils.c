@@ -9,6 +9,10 @@
 #include <fcntl.h>
 #include <errno.h>
 #include <netdb.h>
+#include <net/if.h>
+#include <sys/ioctl.h>
+#include <sys/sockio.h>
+#include <unistd.h>
 #include "utils.h"
 #include "netUtils.h"
 
@@ -73,7 +77,7 @@ int ipAddr_toString(struct sockaddr* ip, char* str){
 int port = ipAddr_getPort(ip);
 char pStr[10];
 if(ipAddr_isIpv4(ip)){
-ipAddr_getIp(ip,str);
+ipAddr_getIp(str,ip);
 if(port>0){
 str_concat(str,":");
 int_toString(pStr,port);
@@ -84,7 +88,7 @@ return 1;
 if(port>0){
 str_concat(str,"[");
 }
-ipAddr_getIp(ip,str);
+ipAddr_getIp(str,ip);
 if(port>0){
 str_concat(str,"]");
 str_concat(str,":");
@@ -136,6 +140,7 @@ return 1;
 
 int ipAddr_isLocal(struct sockaddr_in* ip){
     //
+    return 1;
 }
 
 
@@ -315,15 +320,33 @@ int createTcpConnection( Socket* sock, struct sockaddr* ip){
     sock_init(sock,TCPSOCKET,fd);
     sock->isAlive=SOCKET_ALIVE;
     sock->ipAddr=*ip;
-    if (connect(sock, ip, sizeof(*ip)) < 0){
+    if (connect(sock->fd, ip, sizeof(*ip)) < 0){
         printf("\nConnection Failed \n");
         return 0;
     }
     return 1;
 }
 
-int getMyIpAddr(Socket* sock, struct sockaddr* ip){
+int sock_getMyIpAddr(Socket* sock, struct sockaddr* ip){
 getsockname(sock->fd, ip, sizeof(*ip));
+return 1;
+}
+
+int getLocalIpAddr(struct sockaddr_in* ip, char* interfaceName){
+    // example of interfaceName: "eth0"
+    int n;
+    struct ifreq ifr;
+    n = socket(AF_INET, SOCK_DGRAM, 0);
+    //Type of address to retrieve - IPv4 IP address
+    ifr.ifr_addr.sa_family = AF_INET;
+    //Copy the interface name in the ifreq structure
+    strncpy(ifr.ifr_name , interfaceName , IFNAMSIZ - 1);
+    ioctl(n, SIOCGIFADDR, &ifr);
+    close(n);
+    //display result
+    printf("IP Address is %s - %s\n" , array , inet_ntoa(( (struct sockaddr_in *)&ifr.ifr_addr )->sin_addr) );
+    memcmp(ip,&ifr.ifr_addr,sizeof(*ip));
+    return 0;
 }
 
 int createTcpServer( Socket* sock, int port){
@@ -365,7 +388,8 @@ int waitForEvent(Socket** selectedSock, List* socketList){
 Socket* sock=(Socket*) list_forEach(list);
     while(sock&&fdsToProcess>0){
         if(FD_ISSET(sock->fd, &readSet)){
-            if(sock->isServer){
+            if(sock->isServer&&sock->type==TCPSOCKET){
+                //check for new connections
                 Socket* newSock=(Socket*)malloc(sizeof(Socket));
                 if(sock_acceptNew(newSock,sock)){
                     sock_setNonBlocking(newSock);
@@ -384,7 +408,6 @@ Socket* sock=(Socket*) list_forEach(list);
                 FD_CLR(sock->fd, &readSet);
                 fdsToProcess--;
                 *selectedSock=sock;
-            //check for server accept
             return SOCK_EVENT_READ;
             }
         }

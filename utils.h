@@ -1,3 +1,5 @@
+#ifndef HN_UTILS_H
+#define HN_UTILS_H
 
 int max(int x, int y);
 
@@ -86,7 +88,7 @@ typedef struct list List;
 
 void list_add(List* store, void* data);
 
-void list_remove(List* store, void* data);
+int list_remove(List* store, void* data);
 
 void* list_forEach(List* store);
 
@@ -114,3 +116,5 @@ int buffer_clear(Buffer* buffer, int n);
 int buffer_read(Buffer* buffer, char* data, int size);
 char* buffer_readChar(Buffer* buffer);
 int buffer_isEmpty(Buffer* buffer);
+
+#endif

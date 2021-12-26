@@ -7,6 +7,9 @@
         "sstream": "c",
         "util.h": "c",
         "utils.h": "c",
-        "evp.h": "c"
+        "evp.h": "c",
+        "if.h": "c",
+        "ifaddrs.h": "c",
+        "sockio.h": "c"
     }
 }

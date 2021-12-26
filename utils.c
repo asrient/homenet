@@ -238,7 +238,7 @@ if(store->start){
 store->start=node;
 }
 
-void list_remove(List* store, void* data){
+int list_remove(List* store, void* data){
     ListNode* prev=NULL;
     for(ListNode* i=store->start;i->next;i=i->next){
         if(i->data==data){
@@ -365,7 +365,7 @@ char* buffer_readChar(Buffer* buffer){
         sBuffer=buffer;
         ind=sBuffer->startIndex;
     }
-    char* c=sBuffer->data[ind];
+    char* c=&(sBuffer->data[ind]);
     ind++;
     if(ind>=sBuffer->capacity){
         ind=0;
