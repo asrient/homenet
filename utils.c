@@ -279,7 +279,9 @@ void* list_forEach(List* store){
     }
     if(node)
     node=node->next;
+    if(node)
     return node->data;
+    return NULL;
 }
 
 //////////////////////

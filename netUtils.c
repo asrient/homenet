@@ -168,7 +168,7 @@ sock->isServer=0;
 sock->isBlocking=1;
 sock->isAlive=SOCKET_ALIVE;
 sock->listenForWritable=0;
-sock->listenForReadable=0;
+sock->listenForReadable=1;
 buffer_init(&(sock->writeBuffer),DEFAULT_BUFFER_SIZE);
 return sock;
 }
@@ -199,6 +199,26 @@ int socketFd=sock->fd;
         return 0;
     }
     sock->isBlocking=0;
+    return 1;
+}
+
+int sock_setBlocking( Socket* sock){
+int socketFd=sock->fd;
+ int flags, s;
+    flags = fcntl(socketFd, F_GETFL, 0);
+    if (flags == -1)
+    {
+        perror("fcntl");
+        return 0;
+    }
+    flags &= ~O_NONBLOCK;
+    s = fcntl(socketFd, F_SETFL, flags);
+    if (s == -1)
+    {
+        perror("fcntl");
+        return 0;
+    }
+    sock->isBlocking=1;
     return 1;
 }
 
@@ -275,7 +295,7 @@ return 0;
         return read;
     }
     else if (rc == 0){
-        printf("  Connection closed\n");
+        //Connection closed
         sock_close(sock);
         return read;
     }
@@ -297,7 +317,9 @@ return 1;
 int sock_acceptNew(Socket* sock, Socket* server){
 if(!(server->isServer)||server->isAlive==SOCKET_DEAD)
 return 0;
-int fd = accept(server->fd, NULL, NULL);
+struct sockaddr ip;
+socklen_t size = sizeof(ip);
+int fd = accept(server->fd, &ip, &size);
 if (fd < 0){
     if (errno != EWOULDBLOCK){
     perror("accept() failed\n");
@@ -306,6 +328,7 @@ if (fd < 0){
     return 0;
 }
 sock_init(sock,TCPSOCKET,fd);
+sock->ipAddr=ip;
 // make it non blocking yourself, not doing here
 return 1;
 }
@@ -340,9 +363,10 @@ int createTcpConnection( Socket* sock, struct sockaddr* ip){
     return 1;
 }
 
-int sock_getMyIpAddr(Socket* sock, struct sockaddr* ip){
-getsockname(sock->fd, ip, sizeof(*ip));
-return 1;
+int sock_getMyIpAddr(struct sockaddr* ip, Socket* sock){
+    socklen_t size = sizeof(*ip);
+getsockname(sock->fd, ip, &size);
+return (int) size;
 }
 
 int getLocalIpAddr(struct sockaddr_in* ip, char* interfaceName){
@@ -386,11 +410,13 @@ int waitForEvent(Socket** selectedSock, List* socketList){
     static Socket* sockToRemove=NULL;
     struct timeval timeout;
     if(socketList){
+        //Init waitForEvent
         list=socketList;
         sockToRemove=NULL;
         fdsToProcess=0;
     }
     if(sockToRemove){
+        //removing socket from list
         sock_cleanup(sockToRemove);
         list_remove(list,sockToRemove);
         free(sockToRemove);
@@ -401,13 +427,19 @@ int waitForEvent(Socket** selectedSock, List* socketList){
 Socket* sock=(Socket*) list_forEach(list);
     while(sock&&fdsToProcess>0){
         if(FD_ISSET(sock->fd, &readSet)){
+            // processing fd for read
             if(sock->isServer&&sock->type==TCPSOCKET){
                 //check for new connections
+                //new conn to accept at server fd
                 Socket* newSock=(Socket*)malloc(sizeof(Socket));
+                //new sock created
                 if(sock_acceptNew(newSock,sock)){
+                    //new sock accepted and initiated
                     sock_setNonBlocking(newSock);
                     list_add(list,newSock);
+                    //new sock added to list
                     *selectedSock=newSock;
+                    //returning new sock
                     return SOCK_EVENT_NEW;
                 }
                 else{
@@ -425,6 +457,7 @@ Socket* sock=(Socket*) list_forEach(list);
             }
         }
         if(FD_ISSET(sock->fd, &writeSet)){
+            //printf("[waitForEvent] processing fd: %d for write\n",sock->fd);
             fdsToProcess--;
             FD_CLR(sock->fd, &writeSet);
             sock_write(sock,NULL,0);
@@ -432,6 +465,7 @@ Socket* sock=(Socket*) list_forEach(list);
         sock=(Socket*) list_forEach(NULL);
     }
     if(fdsToProcess==0){
+        //no prev fds, recursion..
         return waitForEvent(selectedSock,NULL);
     }
     printf("Error: %d fds left to process but ran out of sockets in list\n",fdsToProcess);
@@ -441,8 +475,10 @@ Socket* sock=(Socket*) list_forEach(list);
     FD_ZERO(&readSet);
     FD_ZERO(&writeSet);
     maxFd=0;
+    //setting up fdset before select..
     Socket* sock=(Socket*) list_forEach(list);
     while(sock){
+        //printf("[waitForEvent] adding fd %d..\n",sock->fd);
         if(sock->isAlive==SOCKET_DEAD){
             *selectedSock=sock;
             sockToRemove=sock;
@@ -464,8 +500,10 @@ Socket* sock=(Socket*) list_forEach(list);
         if(sock->fd>maxFd&&(sock->listenForReadable||sock->listenForWritable)){
             maxFd=sock->fd;
         }
+        //get next fd
          sock=(Socket*) list_forEach(NULL);
     }
+    //printf("[waitForEvent] calling select..\n");
     timeout.tv_sec  = SELECT_TIMEOUT_SEC;
    timeout.tv_usec = 0;
     fdsToProcess = select(maxFd + 1, &readSet, &writeSet, NULL, &timeout);
