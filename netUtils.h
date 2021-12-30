@@ -6,7 +6,7 @@
 
 #define IPADDR_SIZE  INET6_ADDRSTRLEN > INET_ADDRSTRLEN ? INET6_ADDRSTRLEN : INET_ADDRSTRLEN
 
-int str_toIpAddr(char* str, struct sockaddr* ip);
+int str_toIpAddr(struct sockaddr* ip, char* str);
 int str_getIpAddrType(char* addr);
 int ipAddr_init(struct sockaddr* ip,int type, char* addr, int port);
 int ipAddr_toString(struct sockaddr* ip, char* str);
@@ -15,6 +15,7 @@ char* ipAddr_getIp(char* s, struct sockaddr* ip);
 int ipAddr_isIpv4(struct sockaddr* ip);
 int ipAddr_setPort(struct sockaddr* ip, int port);
 int ipAddr_setIp(struct sockaddr* ip, char* addr);
+void ipAddr_print(struct sockaddr* ip);
 int ipAddr_isLocal(struct sockaddr_in* ip); //
 
 #define TCPSOCKET 1
@@ -63,5 +64,14 @@ int getLocalIpAddr(struct sockaddr_in* ip, char* interfaceName);
 int createTcpServer( Socket* sock, int port);
 int waitForEvent(Socket** selectedSock, List* socketList);
 int dns_getIpAddr(struct sockaddr* ip, char* str);
+
+///////////////////////////////////
+
+#define MDNS_PORT 5353
+
+int mdns_start(Socket* sock);
+int udp_write(Socket* sock,struct sockaddr * to, char* data, int n);
+int udp_read(char* data, int max, Socket* sock,struct sockaddr * from);
+int mdns_send(const void* buffer, int size);
 
 #endif

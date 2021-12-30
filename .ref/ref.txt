@@ -1,1 +1,3 @@
-https://beej.us/guide/bgnet/html/#sendrecv
+cc test.c utils.c netUtils.c -L/usr/local/Cellar/openssl@1.1/1.1.1m/lib -lssl -lcrypto 
+
+cc test/mdns.c utils.c netUtils.c dns/codec.c dns/output.c dns/mappings.c

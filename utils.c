@@ -379,3 +379,20 @@ char* buffer_readChar(Buffer* buffer){
 int buffer_isEmpty(Buffer* buffer){
     return buffer->size==0;
 }
+
+
+///////////////////////////////
+
+void print_hex(char* str, int len){
+    for(int i=0;i<len;i++){
+        printf("%02x ",str[i]);
+    }
+    printf("\n");
+}
+
+void print_buff(char* str, int len){
+    for(int i=0;i<len;i++){
+        printf("%c",str[i]);
+    }
+    printf("\n");
+}

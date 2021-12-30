@@ -117,4 +117,7 @@ int buffer_read(Buffer* buffer, char* data, int size);
 char* buffer_readChar(Buffer* buffer);
 int buffer_isEmpty(Buffer* buffer);
 
+void print_hex(char* str, int len);
+void print_buff(char* str, int len);
+
 #endif

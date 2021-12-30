@@ -10,6 +10,23 @@
         "evp.h": "c",
         "if.h": "c",
         "ifaddrs.h": "c",
-        "sockio.h": "c"
+        "sockio.h": "c",
+        "mdns.h": "c",
+        "__hash_table": "c",
+        "__split_buffer": "c",
+        "array": "c",
+        "bitset": "c",
+        "hash_map": "c",
+        "initializer_list": "c",
+        "iterator": "c",
+        "list": "c",
+        "string": "c",
+        "string_view": "c",
+        "unordered_map": "c",
+        "utility": "c",
+        "vector": "c",
+        "output.h": "c",
+        "ssl.h": "c",
+        "socket.h": "c"
     }
 }

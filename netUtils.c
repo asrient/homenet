@@ -17,8 +17,11 @@
 #include "netUtils.h"
 
 
-int str_toIpAddr(char* str, struct sockaddr* ip){
+int str_toIpAddr(struct sockaddr* ip, char* constStr){
+char varStr[str_len(constStr)];
 char addr[IPADDR_SIZE];
+char* str=varStr;
+str_copy(varStr,constStr);
 int port=0;
 int type=0;
 if(str[0]=='['){
@@ -32,13 +35,17 @@ if(str[0]=='['){
     type=AF_INET6;
 }
 else{
+printf("addr1: %s\n",str);
 str_copy(addr,str_split(str,":"));
+printf("addr: %s\n",addr);
 char* pTemp=str_split(NULL,":");
+printf("ptemp: %s\n",pTemp);
 if(pTemp!=NULL){
 port=str_toInt(pTemp);
 }
 type=AF_INET;
 }
+printf("addr initing.. \n");
 return ipAddr_init(ip,type,addr,port);
 }
 
@@ -96,6 +103,12 @@ int_toString(pStr,port);
 str_concat(str,pStr);
 }
 return 1;
+}
+
+void ipAddr_print(struct sockaddr* ip){
+char str[IPADDR_SIZE];
+ipAddr_toString(ip,str);
+printf("%s\n",str);
 }
 
 int ipAddr_getPort(struct sockaddr* ip){
@@ -344,7 +357,7 @@ int getLocalIpAddr(struct sockaddr_in* ip, char* interfaceName){
     ioctl(n, SIOCGIFADDR, &ifr);
     close(n);
     //display result
-    printf("IP Address is %s - %s\n" , array , inet_ntoa(( (struct sockaddr_in *)&ifr.ifr_addr )->sin_addr) );
+    //printf("IP Address is %s - %s\n" , array , inet_ntoa(( (struct sockaddr_in *)&ifr.ifr_addr )->sin_addr) );
     memcmp(ip,&ifr.ifr_addr,sizeof(*ip));
     return 0;
 }
@@ -436,7 +449,7 @@ Socket* sock=(Socket*) list_forEach(list);
             return SOCK_EVENT_CLOSE;
         }
         if(sock->isAlive==SOCKET_WILLDIE){
-            if(!buffer_isEmpty(&(sock->writeBuffer))){
+            if(sock->type==TCPSOCKET && !buffer_isEmpty(&(sock->writeBuffer))){
                 sock->listenForWritable=1;
             }
             else{
@@ -446,7 +459,7 @@ Socket* sock=(Socket*) list_forEach(list);
         }
         if(sock->listenForReadable)
         FD_SET(sock->fd, &readSet);
-        if(sock->listenForWritable)
+        if(sock->type==TCPSOCKET &&sock->listenForWritable)
         FD_SET(sock->fd, &writeSet);
         if(sock->fd>maxFd&&(sock->listenForReadable||sock->listenForWritable)){
             maxFd=sock->fd;
@@ -476,4 +489,125 @@ int dns_getIpAddr(struct sockaddr* ip, char* str){
     ipAddr_init(ip,AF_INET,NULL,80);
     memcpy((char *) &(((struct sockaddr_in*)ip)->sin_addr.s_addr), h->h_addr_list[0], h->h_length); 
     return 1;
+}
+
+//////////////////////////////////////////////////
+
+int mdns_start(Socket* sock){
+    printf("Starting mDNS\n");
+    int fd = socket(AF_INET, SOCK_DGRAM, 0);
+    if(fd<0){
+        return 0;
+    }
+    printf("mDNS fd %d \n",fd);
+    sock_init(sock,UDPSOCKET,fd);
+    struct sockaddr* ip = &(sock->ipAddr);
+    printf("got ip init \n");
+    if(!str_toIpAddr(ip,"224.0.0.251:5353"))
+    return 0;
+    printf("got ip set \n");
+    sock->isServer=1;
+    // allow multiple sockets to use the same PORT number
+    u_int yes = 1;
+    unsigned char ttl = 1;
+	unsigned char loopback = 1;
+    if (
+        setsockopt(
+            fd, SOL_SOCKET, SO_REUSEADDR, (char*) &yes, sizeof(yes)
+        ) < 0
+        &&
+        setsockopt(
+            fd, SOL_SOCKET, SO_REUSEPORT, (char*) &yes, sizeof(yes)
+        ) < 0
+    ){
+       perror("Reusing ADDR failed");
+       return 0;
+    }
+    printf("reuse addr success \n");
+
+    setsockopt(fd, IPPROTO_IP, IP_MULTICAST_TTL, (const char*)&ttl, sizeof(ttl));
+	setsockopt(fd, IPPROTO_IP, IP_MULTICAST_LOOP, (const char*)&loopback, sizeof(loopback));
+
+    // use setsockopt() to request that the kernel join a multicast group
+    struct ip_mreq mreq;
+    mreq.imr_multiaddr.s_addr = htonl((((uint32_t)224U) << 24U) | ((uint32_t)251U));
+    mreq.imr_interface.s_addr = htonl(INADDR_ANY);
+    if (
+        setsockopt(
+            fd, IPPROTO_IP, IP_ADD_MEMBERSHIP, (char*) &mreq, sizeof(mreq)
+        ) < 0
+    ){
+        perror("setsockopt");
+        return 0;
+    }
+    setsockopt(fd, IPPROTO_IP, IP_MULTICAST_IF, (const char*)&(((struct sockaddr_in*)ip)->sin_addr),
+		           sizeof(((struct sockaddr_in*)ip)->sin_addr));
+    printf("multicast success \n");
+    // bind to receive address
+    if (bind(fd, (struct sockaddr*) ip, sizeof(*ip)) < 0) {
+        perror("bind");
+        return 0;
+    }
+    char str[INET_ADDRSTRLEN+8];
+    ipAddr_toString(ip,str);
+    printf("bind success at: %s \n",str);
+    return 1;
+}
+
+int udp_write(Socket* sock,struct sockaddr * to, char* data, int n){
+    int nbytes=0;
+    int eachtime=0;
+    while(nbytes<n){
+        eachtime = sendto(sock->fd,data+nbytes,n-nbytes,0,to,sizeof(*to));
+        if (eachtime < 0) {
+            perror("sendto");
+            return -1;
+        }
+        nbytes+=eachtime;
+    }
+    return nbytes;
+}
+
+int udp_read(char* data, int max, Socket* sock,struct sockaddr * from){
+    int nbytes=0;
+    socklen_t fromlen = sizeof(*from);
+        nbytes = recvfrom(sock->fd,data,max,0,from,&fromlen);
+        if(nbytes<0){
+            nbytes=0;
+        }
+        printf("read %d bytes, from: ",nbytes);
+    return nbytes;
+}
+
+
+int mdns_send(const void* buffer, int size) {
+    static int fd = -1;
+    static struct sockaddr_in addr;
+    if(fd<0){
+        fd = socket(AF_INET, SOCK_DGRAM, 0);
+        struct ip_mreq mreq;
+        mreq.imr_multiaddr.s_addr = htonl((((uint32_t)224U) << 24U) | ((uint32_t)251U));
+    mreq.imr_interface.s_addr = htonl(INADDR_ANY);
+    if (
+        setsockopt(
+            fd, IPPROTO_IP, IP_ADD_MEMBERSHIP, (char*) &mreq, sizeof(mreq)
+        ) < 0
+    ){
+        perror("setsockopt");
+        return -1;
+    }
+    str_toIpAddr((struct sockaddr*) &addr,"224.0.0.251:5353");
+    }
+    if(fd<0){
+        return -1;
+    }
+    int sent=0;
+    printf("Buff Size: %d, ipAddr Size: %d, IpAddr sendto: ",size,(int)sizeof(addr));
+    sent=sendto(fd, (const char*)buffer, (size_t)size, 0, (struct sockaddr*)&(addr), sizeof(addr));
+    printf("sent %d bytes\n",sent);
+	if (sent < 0){
+        perror("sendto");
+		return -1;
+        }
+	return sent;
 }
