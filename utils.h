@@ -41,6 +41,11 @@ int int_charsCount(int i);
 
 int float_charsCount(float f);
 
+int str_startswith(char* str, char* part);
+
+int str_endswith(char* str, char* part);
+
+int str_charCount(char* str, char c);
 //////////////////
 
 struct Item {

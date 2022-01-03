@@ -16,6 +16,11 @@
 #include "utils.h"
 #include "netUtils.h"
 
+/**
+ * NOTE: The current implementation of netUtils mostly works well with ipv4 addresses.
+ * To make it more AF-Independent (ipv6 friendly), we suggest experimenting with these techniques:
+ * - use `struct sockaddr_storage` instead of `struct sockaddr` when storing addresses.
+ */
 
 int str_toIpAddr(struct sockaddr* ip, char* constStr){
 char varStr[str_len(constStr)];
@@ -26,26 +31,28 @@ int port=0;
 int type=0;
 if(str[0]=='['){
     int addrEndInd=str_findIndex(str,']');
-    str_substring(addr,str,1,addrEndInd);
+    str_substring(addr,str,1,addrEndInd-1);
     str=str+addrEndInd+1;
     char* pTemp=str_split(str,":");
     if(pTemp!=NULL){
     port=str_toInt(pTemp);
     }
     type=AF_INET6;
+    printf("addr: %s port: %s\n",addr,pTemp);
+}
+else if(str_charCount(str,':')>1){
+    type=AF_INET6;
+    // ipv6 without port
+    str_copy(addr,str);
 }
 else{
-printf("addr1: %s\n",str);
 str_copy(addr,str_split(str,":"));
-printf("addr: %s\n",addr);
 char* pTemp=str_split(NULL,":");
-printf("ptemp: %s\n",pTemp);
 if(pTemp!=NULL){
 port=str_toInt(pTemp);
 }
 type=AF_INET;
 }
-printf("addr initing.. \n");
 return ipAddr_init(ip,type,addr,port);
 }
 
@@ -93,20 +100,20 @@ return 1;
 }
 }
 if(port>0){
-str_concat(str,"[");
-}
-ipAddr_getIp(str,ip);
-if(port>0){
+str_set(str,"[");
+ipAddr_getIp(str+1,ip);
 str_concat(str,"]");
 str_concat(str,":");
 int_toString(pStr,port);
 str_concat(str,pStr);
 }
+else
+ipAddr_getIp(str,ip);
 return 1;
 }
 
 void ipAddr_print(struct sockaddr* ip){
-char str[IPADDR_SIZE];
+char str[IPADDR_SIZE+10];
 ipAddr_toString(ip,str);
 printf("%s\n",str);
 }
@@ -156,6 +163,18 @@ int ipAddr_isLocal(struct sockaddr_in* ip){
     return 1;
 }
 
+int isDomainName(char* str){
+    // Some basic validation, not meant for complete validation
+    if(str_charCount(str,'.')==0)
+        return 0;
+    if(str_len(str)<3)
+        return 0;
+    if(str_charCount(str,'/')!=0)
+        return 0;
+    if(str_charCount(str,':')!=0)
+        return 0;
+    return 1;
+}
 
 /////////////////////////////////////////////////////////////
 
@@ -436,8 +455,9 @@ Socket* sock=(Socket*) list_forEach(list);
                 if(sock_acceptNew(newSock,sock)){
                     //new sock accepted and initiated
                     sock_setNonBlocking(newSock);
-                    list_add(list,newSock);
-                    //new sock added to list
+                    /*
+                    We are not adding the new socket to list, the user should do it if needed
+                    */
                     *selectedSock=newSock;
                     //returning new sock
                     return SOCK_EVENT_NEW;

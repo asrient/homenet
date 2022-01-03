@@ -40,6 +40,16 @@ int str_contains(char* str, char testStr[]){
     return 0;
 }
 
+int str_charCount(char* str, char c){
+    int count=0;
+    for(int i=0;i<str_len(str);i++){
+        if(*(str+i)==c){
+            count++;
+        }
+    }
+    return count;
+}
+
 int str_findIndex(char* str, char c){
 char *e;
 e = strchr(str, c);
@@ -59,6 +69,27 @@ int size=end-start+1;
 memcpy(s,str+start,end-start+1);
 s[size]='\0';
 return s;
+}
+
+int str_startswith(char* str, char* part){
+    int len=str_len(part);
+    for(int i=0;i<len;i++){
+        if(*(str+i)!=*(part+i)){
+            return 0;
+        }
+    }
+    return 1;
+}
+
+int str_endswith(char* str, char* part){
+    int len=str_len(part);
+    int strLen=str_len(str);
+    for(int i=0;i<len;i++){
+        if(*(str+strLen-len+i)!=*(part+i)){
+            return 0;
+        }
+    }
+    return 1;
 }
 
 void str_set(char* arr, char string[]){

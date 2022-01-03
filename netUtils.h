@@ -18,6 +18,8 @@ int ipAddr_setIp(struct sockaddr* ip, char* addr);
 void ipAddr_print(struct sockaddr* ip);
 int ipAddr_isLocal(struct sockaddr_in* ip); //
 
+int isDomainName(char* str);
+
 #define TCPSOCKET 1
 #define UDPSOCKET 2
 
