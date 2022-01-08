@@ -46,6 +46,10 @@ int str_startswith(char* str, char* part);
 int str_endswith(char* str, char* part);
 
 int str_charCount(char* str, char c);
+
+void str_removeSpaces(char* str);
+
+void str_removeChars(char* str, char* cArr);
 //////////////////
 
 struct Item {
@@ -69,11 +73,11 @@ Item* map_getItem(Map* map,char key[]);
 
 Item* map_lastItem(Map* map);
 
-void map_set(Map* map, char key[], void* value);
+void map_set(Map* map, char key[], void* value, int freeItem);
 
 void* map_get(Map* map, char key[]);
 
-int map_del(Map* map, char key[]);
+int map_del(Map* map, char key[], int freeItem);
 
 Item* map_forEach(Map* map);
 
@@ -124,5 +128,6 @@ int buffer_isEmpty(Buffer* buffer);
 
 void print_hex(char* str, int len);
 void print_buff(char* str, int len);
+int readConfigFile(char* key, char* value, char* filePath, char* section);
 
 #endif

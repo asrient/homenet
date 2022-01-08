@@ -23,7 +23,7 @@
  */
 
 int str_toIpAddr(struct sockaddr* ip, char* constStr){
-char varStr[str_len(constStr)];
+char varStr[str_len(constStr)+1];
 char addr[IPADDR_SIZE];
 char* str=varStr;
 str_copy(varStr,constStr);

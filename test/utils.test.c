@@ -127,9 +127,9 @@ void test_map(){
     *v1=3;
     *v2=5;
     *v3=6;
-    map_set(&map, "m1", (void*)v1 );
-    map_set(&map, "m2", (void*)v2 );
-    map_set(&map, "m1", (void*)v3 );
+    map_set(&map, "m1", (void*)v1, 0 );
+    map_set(&map, "m2", (void*)v2, 0 );
+    map_set(&map, "m1", (void*)v3, 1 );
     void* r1=map_get(&map,"m1");
     void* r2=map_get(&map,"m2");
     printf("m1 val: %d \n",r1? *(int*)r1:-1);

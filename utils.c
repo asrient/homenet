@@ -174,6 +174,26 @@ int float_charsCount(float f){
     return snprintf( NULL, 0, "%f", f );
 }
 
+
+void str_removeChars(char* str, char* cArr){
+    int i=0;
+    int shift=0;
+    char t[2]="";
+    while(str[i]!='\0'){
+        str[i-shift]=str[i];
+        t[0]=str[i];
+        if(str_contains(cArr,t)){
+            shift++;
+        }
+            i++; 
+    }
+    str[i-shift]='\0';
+}
+
+void str_removeSpaces(char* str){
+    str_removeChars(str, " ");
+}
+
 ////////////////////
 
 void map_init(Map* map){
@@ -201,10 +221,11 @@ Item* map_lastItem(Map* map){
     return i;
 }
 
-void map_set(Map* map, char key[], void* value){
+void map_set(Map* map, char key[], void* value, int freeItem){
     Item* prevItem=map_getItem(map,key);
     
     if(prevItem){
+        if(freeItem)
         free(prevItem->value);
         prevItem->value=value;
     }
@@ -230,7 +251,7 @@ void* map_get(Map* map, char key[]){
     return NULL;
 }
 
-int map_del(Map* map, char key[]){
+int map_del(Map* map, char key[], int freeItem){
     Item* prev=NULL;
     for(Item* i=map->start;i->next;i=i->next){
         if(str_isEqual(i->key,key)){
@@ -238,6 +259,7 @@ int map_del(Map* map, char key[]){
             prev->next=i->next;
             else
             map->start=i->next;
+            if(freeItem)
             free(i);
             return 1;
         }
@@ -428,4 +450,70 @@ void print_buff(char* str, int len){
         printf("%c",str[i]);
     }
     printf("\n");
+}
+
+int readConfigFile(char* key, char* value, char* filePath, char* section){
+    static FILE * fp;
+    static char* sec;
+    if(filePath||!fp){
+        fp = fopen(filePath, "r");
+        printf("Reading config file: %s\n",filePath);
+    }
+    if(!fp){
+        printf("Config file not found: %s\n",filePath);
+        return 0;
+    }
+    if(section){
+        sec=section;
+        rewind(fp);
+    }
+    size_t size=0;
+    char* line = NULL;
+    int recall=0;
+    if(sec&& !str_isEqual(sec,""))
+    while(getdelim(&line,&size,'\n',fp)>0){
+        str_removeChars(line,"\t\n");
+        char t[str_len(sec)+3];
+        sprintf(t,"[%s]",sec);
+        if(str_isEqual(line,t)){
+            break;
+        }
+    }
+    sec=NULL;
+    int read=getdelim(&line,&size,'\n',fp);
+    if (read>0){
+        if(str_startswith(line,"[")){
+            //we are done its the next section
+            read = 0;
+        }
+        else if(str_startswith(line,"#")){
+            // its a comment, ignore
+            recall=1;
+        }
+        else{
+        line[str_len(line)-1]='\0';
+        str_removeChars(line,"\t\n");
+        if(str_contains(line,"=")){
+        char* lKey=str_split(line,"=");
+        char* lValue=str_split(NULL,"=");
+        str_copy(key,lKey);
+        str_copy(value,lValue);
+        str_strip(key);
+        str_strip(value);
+        }
+        else{
+            printf("Error: line [%s] is not in format key=value\n", line);
+            recall=1;
+        }
+        }
+    }
+    free(line);
+    if(read<=0){
+        fclose(fp);
+        fp=NULL;
+    }
+    if(recall){
+        return readConfigFile(key,value,filePath,section);
+    }
+    return read>0;
 }

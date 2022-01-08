@@ -27,6 +27,7 @@
         "vector": "c",
         "output.h": "c",
         "ssl.h": "c",
-        "socket.h": "c"
+        "socket.h": "c",
+        "homenet.h": "c"
     }
 }
