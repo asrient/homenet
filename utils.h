@@ -79,6 +79,8 @@ void* map_get(Map* map, char key[]);
 
 int map_del(Map* map, char key[], int freeItem);
 
+int map_cleanup(Map* map, int freeItem);
+
 Item* map_forEach(Map* map);
 
 struct listNode{

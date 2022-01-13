@@ -28,6 +28,12 @@
         "output.h": "c",
         "ssl.h": "c",
         "socket.h": "c",
-        "homenet.h": "c"
+        "homenet.h": "c",
+        "typeinfo": "c",
+        "*.inc": "c",
+        "uio.h": "c",
+        "sysexits.h": "c",
+        "__node_handle": "c",
+        "uuid.h": "c"
     }
 }

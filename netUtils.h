@@ -47,6 +47,7 @@ int isAlive; //2 if alive, 1 if close after send, 0 if closed
 int listenForWritable;
 int listenForReadable;
 Buffer writeBuffer;
+void* ptr;
 };
 
 typedef struct Socket Socket;
@@ -67,6 +68,7 @@ int getLocalIpAddr(struct sockaddr_in* ip, char* interfaceName);
 int createTcpServer( Socket* sock, int port);
 int waitForEvent(Socket** selectedSock, List* socketList);
 int dns_getIpAddr(struct sockaddr* ip, char* str);
+int setSocketTimeout(Socket* sock, int timeout);
 
 ///////////////////////////////////
 

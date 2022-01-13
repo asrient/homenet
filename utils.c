@@ -260,6 +260,7 @@ int map_del(Map* map, char key[], int freeItem){
             else
             map->start=i->next;
             if(freeItem)
+            free(i->value);
             free(i);
             return 1;
         }
@@ -277,6 +278,17 @@ Item* map_forEach(Map* map){
     if(item)
     item=item->next;
     return item;
+}
+
+int map_cleanup(Map* map, int freeItem){
+    Item* next;
+    for(Item* i=map->start;i;i=next){
+        next=i->next;
+        if(freeItem)
+        free(i->value);
+        free(i);
+    }
+    return 1;
 }
 
 ////////////////////////////////

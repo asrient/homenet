@@ -189,6 +189,7 @@ sock->isAlive=SOCKET_ALIVE;
 sock->listenForWritable=0;
 sock->listenForReadable=1;
 buffer_init(&(sock->writeBuffer),DEFAULT_BUFFER_SIZE);
+sock->ptr=NULL;
 return sock;
 }
 
@@ -246,7 +247,16 @@ int sock_write( Socket* sock, char* data, int n){
 if(sock->isAlive==SOCKET_DEAD)
 return 0;
 if(sock->isBlocking){
-    return write(sock->fd,data,n);
+        int done=0;
+        while(done<n){
+            int wrote=write(sock->fd,data+done,n-done);
+            if(wrote<=0){
+                // socket at its limit
+                break;
+            }
+            done+=wrote;
+        }
+        return done;
 }
 else{
     int couldWrite=1;
@@ -300,6 +310,10 @@ else{
 int sock_read(char* data, int max,  Socket* sock){
 if(sock->isAlive==SOCKET_DEAD)
 return 0;
+if(sock->isBlocking){
+        int rc = recv(sock->fd, data, max, 0);
+        return rc;
+}
     int rc;
     int read=0;
     while(read<max){
@@ -546,6 +560,21 @@ int dns_getIpAddr(struct sockaddr* ip, char* str){
     }
     ipAddr_init(ip,AF_INET,NULL,80);
     memcpy((char *) &(((struct sockaddr_in*)ip)->sin_addr.s_addr), h->h_addr_list[0], h->h_length); 
+    return 1;
+}
+
+int setSocketTimeout(Socket* sock, int timeout){
+    struct timeval tv;
+    tv.tv_sec = timeout;
+    tv.tv_usec = 0;
+    if(setsockopt(sock->fd, SOL_SOCKET, SO_RCVTIMEO, (char *)&tv, sizeof(struct timeval)) < 0){
+        perror("setsockopt failed\n");
+        return 0;
+    }
+    if(setsockopt(sock->fd, SOL_SOCKET, SO_SNDTIMEO, (char *)&tv, sizeof(struct timeval)) < 0){
+        perror("setsockopt failed\n");
+        return 0;
+    }
     return 1;
 }
 

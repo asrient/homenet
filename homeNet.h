@@ -4,15 +4,29 @@
 #ifndef HN_H
 #define HN_H
 
-#define MAX_URL_SIZE 512
+#define MAX_URL_SIZE 200
 
+#define SOCK_TIMEOUT_SECS 5
+
+#define HN_MSG_END "\r\n"
+
+#define CONFIG_PATH "conf.ini"
+
+struct MdnsRecord{
+struct sockaddr_in ip;
+char name[MAX_URL_SIZE];
+Map data;
+};
+
+typedef struct MdnsRecord MdnsRecord;
 
 struct BridgeContext{
-char* masterKey;
-char* queryKeys; // should be a string where keys are seperated by ","
+char masterKey[50];
+Map queryKeys;
 //FILE *listenKeysFile;
 Map listenKeys;
 Map listeningSocks;
+Map mdnsStore;
 };
 
 typedef struct BridgeContext BridgeContext;
@@ -24,20 +38,22 @@ typedef struct BridgeContext BridgeContext;
 #define HN_MODE_LISTEN 5 // listen for conns locally and forward to to a particular hn url
 
 struct bridgeMode {
-        int* port; // if 0, system will set one
-        int reverseListen;
-        char* rlId; // if NULL, system will set one
-        char reverseListenUrl[MAX_URL_SIZE];
+        int port; // if 0, system will set one, -1 means dont listen on localhost
+        char rlId[50]; // if NULL, system will set one
+        char rlUrl[MAX_URL_SIZE];
+        char rlPass[10];
+        BridgeContext context;
 };
 
 struct RLMode {
-        char* rlId; // if NULL, system will set one
-        char reverseListenUrl[MAX_URL_SIZE];
+        char rlId[50]; // if NULL, system will set one
+        char rlUrl[MAX_URL_SIZE];
+        char rlPass[10];
         char localIp[IPADDR_SIZE+10];
 };
 
 struct listenMode {
-        int* port;
+        int port;
         char connectUrl[MAX_URL_SIZE];
 };
 
@@ -49,6 +65,7 @@ struct connectMode {
 struct queryMode {
         char name[100];
         char bridgeUrl[MAX_URL_SIZE];
+        char pass[10];
         char* out; //TODO: change to a proper struct
         int* nOut;
 };
@@ -66,36 +83,54 @@ typedef struct hn_Config hn_Config;
 
 /*
 HomeNet URL formats: 
-hn//(id:password)//(id:password) 
-hn//example.com//fchg3v//b5fg
-hn//example.com//fchg3v/p:67gbt//56g8gb
-hn//example.com//fchg3v/p:67gbt/s:0//56g8gb (use ssl but accept any footprint)
-hn//example.com//fchg3v/s:d4t-pk-hash-cvb54f//56g8gb
+hn//(id#password)/(id#password) 
+password=key:salt
+hn//example.com/fchg3v/b5fg
+hn//example.com/fchg3v#67gbt:56th/56g8gb
 
-To listen to an id of abc3f in the server of example.com//f45f with password 1234, use url:
-hn//example.com//f45f/p:1234  (abc3f is not a part of the address)
+To listen to an id of abc3f in the server of example.com/f45f with password key=a01, salt=1234, use url:
+hn//example.com/f45f#a01:1234  (abc3f is not a part of the address)
 */
 
-#define HN_SOCK_MODE_RELAY 1
-#define HN_SOCK_MODE_LISTEN_NOTIF 2
-#define HN_SOCK_MODE_MDNS 3
+#define SOCK_MODE_RELAY 1
+#define SOCK_MODE_LISTEN 2 //Should not be reading anything, used for notifying local listeners
+#define SOCK_MODE_MDNS 3
+#define SOCK_MODE_LISTEN_OUT 4
 
 struct hn_Socket{
-char url[500];
+char url[200];
 Socket sock;
 int mode;
 //TODO: ssl stack
-struct relayMode{
-Socket next;
-int isInititator;
+struct relay{
+Socket *next;
+int isWaiting;
+char otp[20];
+char listenId[20];
 }relay;
-struct listenNotifMode{
-char salt[100];
-char* id;
-}listen;
-struct mdnsMode{
+struct listenNotif{
+char salt[20];
+char listenId[20];
+Map waitingSocks; //not used in listen_out mode
+}listen; //reused by both listen and listen_out
+struct mdns{
 int broadcastBridge;
 }mdns;
 };
 
+typedef struct hn_Socket hn_Socket;
+
+int argsToMap(Map* map, int argc, char *argv[]);
+int buildAppConfig(hn_Config* conf, Map* args);
+void bridgeContextInit(BridgeContext* context);
+int isQueryKey(char* key, BridgeContext* context);
+int addWaitingSock(char* listenId, char* otp, hn_Socket* sock, BridgeContext* context);
+int removeWaitingSocket(BridgeContext* context,char* listenId, char* otp);
+int getWaitingSocket(hn_Socket *sock,BridgeContext* context,char* listenId, char* otp);
+char* getSaltForListenId(char* id, BridgeContext* context);
+struct sockaddr_in* getIpAddrForId(char* id,BridgeContext* context);
+hn_Socket* getListeningSock(char* id, BridgeContext* context);
+
+
+int hn_start(hn_Config *conf);
 #endif
