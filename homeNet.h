@@ -98,8 +98,7 @@ hn//example.com/f45f#a01:1234  (abc3f is not a part of the address)
 #define SOCK_MODE_LISTEN_OUT 4
 
 struct hn_Socket{
-char url[200];
-Socket sock;
+Socket* sock;
 int mode;
 //TODO: ssl stack
 struct relay{

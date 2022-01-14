@@ -563,7 +563,7 @@ int dns_getIpAddr(struct sockaddr* ip, char* str){
     return 1;
 }
 
-int setSocketTimeout(Socket* sock, int timeout){
+int sock_setTimeout(Socket* sock, int timeout){
     struct timeval tv;
     tv.tv_sec = timeout;
     tv.tv_usec = 0;

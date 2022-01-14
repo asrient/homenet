@@ -184,6 +184,7 @@ return totalRead;
 /////////////////////////////////////////////////////////////////////////////////////////
 
 void hn_sockInit(hn_Socket* hnSock, Socket* sock, int mode){
+bzero(hnSock,sizeof(hn_Socket));
 hnSock->sock=sock;
 sock->ptr=hnSock;
 hnSock->mode=mode;
@@ -196,7 +197,18 @@ void hn_sockCleanup(hn_Socket* hnSock, BridgeContext* context){
     //close relaying socket
     //remove from waiting list if waiting
     //free hnSock
-map_cleanup(&(hnSock->listen.waitingSocks));
+map_cleanup(&(hnSock->listen.waitingSocks),0);
+}
+
+void sock_destroy(Socket* sock, BridgeContext* context){
+    if(sock->ptr){
+        hn_sockCleanup((hn_Socket*)sock->ptr,context);
+        free(sock->ptr);
+    }
+    sock->ptr=NULL;
+    sock_close(sock);
+    sock_cleanup(sock);
+    free(sock);
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////
@@ -321,7 +333,7 @@ if(context&&waitingHnSock&&!connToIp){
         //Now send otp and ask them to create new listen-conn socket
         char buff[600]="LISTEN_OTP ";
         str_concat(buff,otp);
-        hn_sendMsg(sock,buff);
+        hn_sendMsg(listener->sock,buff);
         str_set(waitingHnSock->relay.listenId,connId);
         str_set(waitingHnSock->relay.otp,otp);
         waitingHnSock->relay.isWaiting=1;
@@ -334,6 +346,7 @@ if(!createTcpConnection(sock,ip)){
     printf("Could not create socket\n");
     return 0;
 } 
+sock_setTimeout(sock,SOCK_TIMEOUT_SECS);
 
 do{
     // Do handshake with the newly connected server
@@ -389,6 +402,10 @@ int initializeListenNotify(char* listenId, char* salt, char* url, Socket* sock){
     // connect to the url then initialize a listen
     // For Mode: SOCK_MODE_LISTEN_OUT
     //we consider sock to be inited already
+    if(str_len(listenId)<=0){
+        listenId=NULL;
+        return 0;
+    }
     int r=initializeConnect(url,sock,NULL,NULL);
     if(r!=1){
         printf("Could not connect to url: %s\n",url);
@@ -411,7 +428,7 @@ int initializeListenNotify(char* listenId, char* salt, char* url, Socket* sock){
     if(str_startswith(buff,"LISTENING")){
         printf("Listening to server\n");
         char *saveptr;
-        strtok_r(str, " ", &saveptr);
+        strtok_r(buff, " ", &saveptr);
         char* id = strtok_r(NULL, " ", &saveptr);
         if(id&&listenId&&!str_isEqual(id,listenId)){
             printf("returned Id not same as requested: %s\n",id);
@@ -419,9 +436,9 @@ int initializeListenNotify(char* listenId, char* salt, char* url, Socket* sock){
         }
         if(sock->ptr){
             hn_Socket* hnSock=(hn_Socket*)sock->ptr;
-            str_set(hnSock->relay.listenId,id);
+            str_set(hnSock->listen.listenId,id);
             if(salt)
-            str_set(hnSock->relay.salt,salt);
+            str_set(hnSock->listen.salt,salt);
             hnSock->mode=SOCK_MODE_LISTEN_OUT;
         }
         return 1;
@@ -468,10 +485,41 @@ int initializeQuery(char* name, char* url, Socket* sock){
     
 }
 
-
+///////////////////////////////////////////////////////////////////////////////////
 
 int start_bridge(hn_Config *conf){
-    //
+    List sockList;
+    list_init(&sockList);
+    //if port is set, start a server
+    //we dont assing a hnSock to server socket
+if(conf->bridge->port>=0){
+    Socket* servSock=malloc(sizeof(Socket));
+    if(!createTcpServer(servSock,conf->bridge->port)){
+        printf("Could not create server socket\n");
+        return 0;
+    }
+    sock_setNonBlocking(&servSock);
+printf("[Server started]\n IP addr: ");
+ipAddr_print(&(servSock->ipAddr));
+list_add(&sockList,servSock);
+}
+else{
+    printf("Not starting up local server\n");
+}
+if(str_len(conf->bridge->rlUrl)){
+    // start a listener to this url
+    Socket* rlSock=malloc(sizeof(Socket));
+    hn_Socket* rlHnSock=malloc(sizeof(hn_Socket));
+    hn_sockInit(rlHnSock,rlSock,SOCK_MODE_LISTEN_OUT);
+    if(!initializeListenNotify(conf->bridge->rlId,conf->bridge->rlPass,conf->bridge->rlUrl,rlSock)){
+        printf("Could not initialize listener\n");
+        return 0;
+    }
+    sock_setNonBlocking(rlSock);
+    list_add(&sockList,rlSock);
+}
+//TODO: setup mdns socket too
+hn_loop(&sockList,conf);
 }
 
 int start_connect(hn_Config *conf){
@@ -494,34 +542,195 @@ int hn_start(hn_Config *conf){
 switch (conf->mode)
 {
     case HN_MODE_CONNECT:
-        return mode_connect(conf);
+        return start_connect(conf);
     case HN_MODE_BRIDGE:
-        return mode_bridge(conf);
+        return start_bridge(conf);
     case HN_MODE_LISTEN:
-        return mode_listen(conf);
+        return start_listen(conf);
     case HN_MODE_REVERSE_LISTEN:
-        return mode_reverseListen(conf);
+        return start_reverseListen(conf);
     case HN_MODE_QUERY:
-        return mode_query(conf);
+        return start_query(conf);
     default:
         return 0;
 }
 return 0;
 }
 
-int handleRead(Socket* sock, hn_Config* conf){
-    //
+///////////////////////////////////////////////////////////////////////////////////
+
+
+int handleNew(Socket* sock, hn_Config* conf, List* sockList){
+    if(conf->mode==HN_MODE_LISTEN){
+         //Connect accourding to the url in config
+    }
+    else{
+        sock_setTimeout(sock,SOCK_TIMEOUT_SECS);
+        char buff[600]="";
+        int read=hn_receiveMsg(buff,600,sock);
+        if(str_startsWith(buff,"HN1.0/CONNECT ")){
+            char *saveptr;
+            char* txt = strtok_r(buff, " ", &saveptr);
+            char* connUrl = strtok_r(NULL, " ", &saveptr);
+            if(!connUrl){
+                printf("Could not extract connUrl from message\n");
+                sock_destroy(sock,NULL);
+                return 0;
+            }
+            hn_Socket* hnSock=malloc(sizeof(hn_Socket));
+            hn_sockInit(hnSock,sock,SOCK_MODE_RELAY);
+            Socket* nextSock=malloc(sizeof(Socket));
+            hn_Socket* hnSockNext=malloc(sizeof(hn_Socket));
+            hn_sockInit(hnSockNext,nextSock,SOCK_MODE_RELAY);
+            int r=initializeConnect(connUrl,nextSock,hnSock,&(conf->bridge->context));
+            if(r==1){
+                //nextSock is connected to an ip addresss
+                str_set(buff,"CONNECTED");
+                hn_sendMsg(sock,buff);
+                hnSock->relay.next=nextSock;
+                hnSock->relay.isWaiting=0;
+                hnSockNext->relay.next=sock;
+                hnSockNext->relay.isWaiting=0;
+                sock_setNonBlocking(nextSock);
+                list_add(sockList,nextSock);
+            }
+            else if(r==2){
+                // sock is waiting for a reverse connection
+                // nextSock is not being used, free it
+                // sock is already added to waiting list by initializeConnect
+                sock_destroy(nextSock,NULL);
+            }
+            else{
+                printf("Could not connect to url: %s\n",connUrl);
+                sock_destroy(sock,NULL);
+                sock_destroy(nextSock,NULL);
+                return 0;
+            }
+        }
+        else if(str_startsWith(buff,"HN1.0/LISTEN_NOTIFY")){
+            // Check if listenId is received
+            // if listenId is received and exists in listenKeys, authenticate it
+            //if not received, create one
+            //create corresponding hnSock and init it for LISTEN mode
+            //add hnsock to listeners of context
+            //send back listenId
+            char *saveptr;
+            char* txt = strtok_r(buff, " ", &saveptr);
+            char* id = strtok_r(NULL, " ", &saveptr);
+            char listenId[20];
+            str_set(listenId,id);
+            Map* keys=&(conf->bridge->context.listenKeys);
+            if(listenId&&map_get(keys,listenId)){
+                str_set(buff,"");
+                Map subMap;
+                map_init(&subMap);
+                map_set(&subMap,listenId,map_get(keys,listenId),0);
+                int r=authThrowChallenge(buff,sock,&subMap);
+                if(!r){
+                    printf("Could not authenticate listener\n");
+                    sock_destroy(sock,NULL);
+                    return 0;
+                }
+                printf("Authenticated listener\n");
+            }
+            else{
+                generateCode(listenId,10);
+                printf("Generated new listenId: %s\n",listenId);
+            }
+            hn_Socket* hnSock=malloc(sizeof(hn_Socket));
+            hn_sockInit(hnSock,sock,SOCK_MODE_LISTEN);
+            str_set(hnSock->listen.listenId,listenId);
+            map_set(&(conf->bridge->context.listeningSocks),listenId,hnSock,0);
+            str_set(buff,"LISTENING ");
+            str_concat(buff,listenId);
+            hn_sendMsg(sock,buff);
+        }
+        else if(str_startsWith(buff,"HN1.0/QUERY ")){
+            // authenticate
+            // check mdnsRecors and send the ones requested
+            //close socket, this will not hit the loop
+        }
+        else{
+            printf("Unknown new command from client: %s\n",buff);
+            sock_destroy(sock,NULL);
+            return 0;
+        }
+        sock_setNonBlocking(sock);
+        list_add(sockList,sock);
+        return 1;
+    }
 }
 
-int handleNew(Socket* sock, hn_Config* conf){
-    //
+int handleRead(Socket* sock, hn_Config* conf, List* sockList){
+    hn_Socket* hnSock=(hn_Socket*)sock->ptr;
+    if(!hnSock){
+        printf("[Read] Socket is not linked with any hnsock\n");
+        return 0;
+    }
+    if(hnSock->mode==SOCK_MODE_RELAY){
+        if(hnSock->relay.isWaiting||!hnSock->relay.next){
+            printf("[Read] Got data from waiting sock, closing it\n");
+            sock_done(sock);
+            // not calling hn_sockCleanup here, will be called on closed event
+            return 0;
+        }
+        Socket* nextSock=(Socket*)hnSock->relay.next->ptr;
+        //reading data from this socket and writing it to next
+        char buffer[600];
+        int bytesRead=sock_read(buffer,600,sock);
+        while(bytesRead>0&&sock->isAlive==SOCKET_ALIVE&&nextSock->isAlive==SOCKET_ALIVE){
+            sock_write(nextSock,buffer,bytesRead);
+            bytesRead=sock_read(buffer,600,sock);
+        }
+        return 1;
+    }
+    else if(hnSock->mode==SOCK_MODE_LISTEN_OUT){
+        if(conf->mode==HN_MODE_BRIDGE){
+        //must be an event for notifying new available connection
+        //read message, extract otp
+        //use the otp to {initializeListenConn}
+        //once connected, pass the socket to {handleNew}
+        char buff[600];
+        int read=hn_receiveMsg(buff,600,sock);
+        if(read<=0){
+            printf("Could not read from socket\n");
+            return 0;
+        }
+        if(!str_startsWith(buff,"LISTEN_OTP ")){
+            printf("Received message is not an listen otp\n");
+            return 0;
+        }
+        char *saveptr;
+        char* txt = strtok_r(buff, " ", &saveptr);
+        char* otp = strtok_r(NULL, " ", &saveptr);
+        if(!otp){
+            printf("Could not extract otp from message\n");
+            return 0;
+        }
+        //initialize the connection
+        Socket* connSock=malloc(sizeof(Socket));
+        int r=initializeListenConn(hnSock->listen.listenId,otp,conf->bridge->rlUrl,connSock);
+        if(!r){
+            printf("Could not initialize connection\n");
+            free(connSock);
+            return 0;
+        }
+        return handleNew(connSock,conf,sockList);
+        }
+        else if(conf->mode==HN_MODE_REVERSE_LISTEN){
+            //Connect accourding to the local ip in config
+        }
+    }
+    else if(hnSock->mode==SOCK_MODE_MDNS){
+        // handle the mdns socket, will only be used in bridge mode
+    }
 }
 
 int handleClose(Socket* sock, hn_Config* conf){
     //
 }
 
-int processEvent(Socket* sock, int event, List* sockList){
+int processEvent(Socket* sock, int event, List* sockList, hn_Config* conf){
 if(event==SOCK_EVENT_READ){
     char buffer[1024];
     int bytesRead=sock_read(buffer,1024,sock);
@@ -556,26 +765,7 @@ printf("Unknown event: %d \n",event);
 return 0;
 }
 
-int hn_loop(){ //
-Socket servSock;
-if(!createTcpServer(&servSock, 2000))
-{
-    printf("Could not create server socket\n");
-    return 1;
-}
-sock_setNonBlocking(&servSock);
-printf("[Server started]\n IP addr: ");
-ipAddr_print(&(servSock.ipAddr));
-
-printf("Addr from sockname: ");
-struct sockaddr addr;
-sock_getMyIpAddr(&addr, &servSock);
-ipAddr_print(&addr);
-
-List sockList;
-list_init(&sockList);
-list_add(&sockList, &servSock);
-
+int hn_loop(List* sockList, hn_Config* conf){ //
 Socket* selSock;
 int isFirst=1;
 do{
@@ -594,8 +784,8 @@ if(event==SOCK_EVENT_TIMEOUT){
     printf("Server is bored :3\n");
     continue;
 }
-processEvent(selSock, event, &sockList);
+processEvent(selSock, event, &sockList, conf);
 }
-while(servSock.isAlive!=SOCKET_DEAD);
+while(1);
 return 0;
 }
