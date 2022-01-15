@@ -25,7 +25,7 @@ char masterKey[50];
 Map queryKeys;
 //FILE *listenKeysFile;
 Map listenKeys;
-Map listeningSocks;
+Map listeningSocks; //type: hn_Socket
 Map mdnsStore;
 };
 
@@ -110,7 +110,7 @@ char listenId[20];
 struct listenNotif{
 char salt[20];
 char listenId[20];
-Map waitingSocks; //not used in listen_out mode
+Map waitingSocks; //type: hn_Socket, not used in listen_out mode
 }listen; //reused by both listen and listen_out
 struct mdns{
 int broadcastBridge;

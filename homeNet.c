@@ -10,6 +10,9 @@
 #include <uuid/uuid.h> // will work on mac and linux
 #include <time.h>
 
+char* HTTP_TEXT="HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n<html><body><h1>Welcome to HomeNet!</h1>You have reached a HomeNet bridge.</body></html>";
+
+
 char *generateCode(char* randomString,int length) {    
     static int mySeed = 25011984;
     char *string = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
@@ -197,13 +200,40 @@ void hn_sockCleanup(hn_Socket* hnSock, BridgeContext* context){
     //close relaying socket
     //remove from waiting list if waiting
     //free hnSock
-map_cleanup(&(hnSock->listen.waitingSocks),0);
+    // note: Socket will not be freed, its upto the caller
+    if(hnSock->mode==SOCK_MODE_RELAY){
+        //If next socket is set already, close it
+        if(hnSock->relay.next){
+            sock_done(hnSock->relay.next);
+        }
+        //if the socket was waiting for a reverse connection, remove it from the waiting list
+        if(hnSock->isWaiting && context){
+            removeWaitingSocket(context, hnSock->listen.listenId, hnSock->listen.otp);
+        }
+    }
+    else if(hnSock->mode==SOCK_MODE_LISTEN){
+        //remove all waiting sockets and close them
+        Item* i=map_forEach(&hnSock->listen.waitingSocks);
+        while(i){
+            hn_Socket* waitingSock=i->value;
+            sock_done(waitingSock->sock);
+            i=map_forEach(NULL);
+        }
+        map_cleanup(&(hnSock->listen.waitingSocks),0);
+        //remove the socket from context listeningSocks
+        if(context){
+            map_del(&(context->listeningSocks),hnSock->listen.listenId,0);
+        }
+    }
+    else{
+        printf("[HNSocket Cleanup] Error: Unsupported socket mode %d\n",hnSock->mode);
+    }
+    free(hnSock);
 }
 
 void sock_destroy(Socket* sock, BridgeContext* context){
     if(sock->ptr){
         hn_sockCleanup((hn_Socket*)sock->ptr,context);
-        free(sock->ptr);
     }
     sock->ptr=NULL;
     sock_close(sock);
@@ -561,10 +591,14 @@ return 0;
 
 
 int handleNew(Socket* sock, hn_Config* conf, List* sockList){
+    //the sock is not added to the list yet, its safe to free it if not required
+    //Add the sock to the list if you want to keep getting events from it
     if(conf->mode==HN_MODE_LISTEN){
          //Connect accourding to the url in config
     }
     else{
+        //intialize the socket to make it blocking again, it is set to non-blocking by the loop
+        sock_setBlocking(sock);
         sock_setTimeout(sock,SOCK_TIMEOUT_SECS);
         char buff[600]="";
         int read=hn_receiveMsg(buff,600,sock);
@@ -655,6 +689,7 @@ int handleNew(Socket* sock, hn_Config* conf, List* sockList){
             sock_destroy(sock,NULL);
             return 0;
         }
+        //set it back to non-blocking and add to list to watch for events
         sock_setNonBlocking(sock);
         list_add(sockList,sock);
         return 1;
@@ -726,46 +761,52 @@ int handleRead(Socket* sock, hn_Config* conf, List* sockList){
     }
 }
 
-int handleClose(Socket* sock, hn_Config* conf){
-    //
+int handleClose(Socket* sock, hn_Config* conf, List* sockList){
+    //we dont need to free the socket, it will be freed by the loop
+    BridgeContext* context=NULL;
+    if(conf->mode==HN_MODE_BRIDGE){
+        context=&(conf->bridge->context);
+    }
+
+    if(sock->ptr){
+        hn_Socket* hnSock=(hn_Socket*)sock->ptr;
+        if(hnSock->mode==SOCK_MODE_RELAY||hnSock->mode==SOCK_MODE_LISTEN){
+            hn_sockCleanup(hnSock,context);
+        }
+        else if(hnSock->mode==SOCK_MODE_LISTEN_OUT){
+            //this is a terminating event, either restart or exit application
+            printf("[Close] Got close event from server socket. Shutting down..\n");
+            exit(1);
+        }
+        else if(hnSock->mode==SOCK_MODE_MDNS){
+            //this is a terminating event, either restart or exit application
+            printf("[Close] Got close event from mdns socket. Shutting down..\n");
+            exit(1);
+        }
+    }
+    else{
+        return 0;
+    }
 }
 
 int processEvent(Socket* sock, int event, List* sockList, hn_Config* conf){
 if(event==SOCK_EVENT_READ){
-    char buffer[1024];
-    int bytesRead=sock_read(buffer,1024,sock);
-    printf("Read from ip: ");
-    ipAddr_print(&(sock->ipAddr));
-    if(bytesRead>0){
-        printf("Socket read: \n %s \n",buffer);
-    }
-    char* txt="HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n<html><body><h1>Welcome to HomeNet!</h1>You have reached a HomeNet bridge.</body></html>";
-    int wr=sock_write(sock,txt,str_len(txt)+1);
-    if(wr>0){
-        printf("Socket wrote bytes: %d \n",wr);
-    }
-    else{
-        printf("Socket write failed: %d \n",wr);
-    }
-    sock_done(sock);
+    handleRead(sock,conf,sockList);
     return 1;
 }
 else if(event==SOCK_EVENT_NEW){
-    printf("New connection from ip: ");
-    ipAddr_print(&(sock->ipAddr));
-    list_add(sockList,sock);
+    handleNew(sock,conf,sockList);
     return 1;
 }
 else if(event==SOCK_EVENT_CLOSE){
-    printf("Closed connection from ip: ");
-    ipAddr_print(&(sock->ipAddr));
+    handleClose(sock,conf,sockList);
     return 1;
 }
 printf("Unknown event: %d \n",event);
 return 0;
 }
 
-int hn_loop(List* sockList, hn_Config* conf){ //
+int hn_loop(List* sockList, hn_Config* conf){ 
 Socket* selSock;
 int isFirst=1;
 do{
