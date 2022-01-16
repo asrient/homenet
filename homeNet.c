@@ -310,8 +310,8 @@ str_set(url,constUrl);
 str_removeSpaces(url);
 char* urlPtr=url;
 // remove the protocol string if there
-if(str_startswith(url,"hn//")){
-    urlPtr=urlPtr+4;
+if(str_startswith(url,"hn://")){
+    urlPtr=urlPtr+5;
 }
 // Setup the first part of the url
 char* first=str_split(urlPtr,"/");
@@ -725,7 +725,11 @@ int handleNew(Socket* sock, hn_Config* conf, List* sockList){
             //close socket, this will not hit the loop
         }
         else{
+            // It is possibly a HTTP request
+            // Write a welcome message for our browser friends
             printf("Unknown new command from client: %s\n",buff);
+            str_set(buff,HTTP_TEXT);
+            sock_write(sock,buff,str_len(buff));
             sock_destroy(sock,NULL);
             return 0;
         }
