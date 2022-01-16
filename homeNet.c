@@ -207,8 +207,8 @@ void hn_sockCleanup(hn_Socket* hnSock, BridgeContext* context){
             sock_done(hnSock->relay.next);
         }
         //if the socket was waiting for a reverse connection, remove it from the waiting list
-        if(hnSock->isWaiting && context){
-            removeWaitingSocket(context, hnSock->listen.listenId, hnSock->listen.otp);
+        if(hnSock->relay.isWaiting && context){
+            removeWaitingSocket(context, hnSock->relay.listenId, hnSock->relay.otp);
         }
     }
     else if(hnSock->mode==SOCK_MODE_LISTEN){
@@ -653,13 +653,13 @@ int handleNew(Socket* sock, hn_Config* conf, List* sockList){
             char* id = strtok_r(NULL, " ", &saveptr);
             char listenId[20];
             str_set(listenId,id);
-            Map* keys=&(conf->bridge->context.listenKeys);
-            if(listenId&&map_get(keys,listenId)){
+            if(listenId&&getSaltForListenId(listenId,&conf->bridge->context.listenKeys)){
                 str_set(buff,"");
                 Map subMap;
                 map_init(&subMap);
-                map_set(&subMap,listenId,map_get(keys,listenId),0);
+                map_set(&subMap,listenId,getSaltForListenId(listenId,&conf->bridge->context.listenKeys),0);
                 int r=authThrowChallenge(buff,sock,&subMap);
+                map_cleanup(&subMap,0);
                 if(!r){
                     printf("Could not authenticate listener\n");
                     sock_destroy(sock,NULL);

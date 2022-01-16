@@ -10,6 +10,7 @@
 
 #define HN_MSG_END "\r\n"
 
+// Fix: Change this acc to platforms
 #define CONFIG_PATH "conf.ini"
 
 struct MdnsRecord{
@@ -65,9 +66,8 @@ struct connectMode {
 struct queryMode {
         char name[100];
         char bridgeUrl[MAX_URL_SIZE];
-        char pass[10];
-        char* out; //TODO: change to a proper struct
-        int* nOut;
+        char salt[10];
+        char key[20];
 };
 
 struct hn_Config{
@@ -119,9 +119,7 @@ int broadcastBridge;
 
 typedef struct hn_Socket hn_Socket;
 
-int argsToMap(Map* map, int argc, char *argv[]);
-int buildAppConfig(hn_Config* conf, Map* args);
-void bridgeContextInit(BridgeContext* context);
+int confInit(hn_Config* conf, int argc, char *argv[]);
 int isQueryKey(char* key, BridgeContext* context);
 int addWaitingSock(char* listenId, char* otp, hn_Socket* sock, BridgeContext* context);
 int removeWaitingSocket(BridgeContext* context,char* listenId, char* otp);

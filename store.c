@@ -26,7 +26,7 @@ char* getSaltForListenId(char* id, BridgeContext* context){
     if(!salt){
         // format: l-id
         char tstr[str_len(id)+3];
-        str_set(tstr,"l-");
+        str_set(tstr,"L-");
         str_concat(tstr,id);
         salt=getEnv(tstr);
     }
@@ -84,7 +84,7 @@ int getQuerySalt(char* id, BridgeContext* context){
     if(!salt){
         // format: q-id
         char tstr[str_len(id)+3];
-        str_set(tstr,"q-");
+        str_set(tstr,"Q-");
         str_concat(tstr,id);
         salt=getEnv(tstr);
     }
@@ -101,6 +101,9 @@ void bridgeContextInit(BridgeContext* context){
     map_init(&(context->listeningSocks));
     map_init(&(context->mdnsStore));
 }
+
+///////////////////////////////////////////////////////////////////////////////////////
+
 /*
 Map keys:
     - mode: c, b, l, r, q
@@ -125,146 +128,294 @@ Map keys:
     - bridgeUrl
 */
 
-int buildAppConfig(hn_Config* conf, Map* args){
-    char* strMode=map_get(args,"mode");
-    int useEnv=1;
-    char configFile[80]=CONFIG_PATH;
-    if(map_get(args,"configFile")&&str_len(map_get(args,"configFile")>1)){
-        if(str_isEqual(map_get(args,"configFile"),"none")){
-            str_set(configFile,"");
-        }
-        else
-        str_set(configFile,map_get(args,"configFile"));
-    }
-    if(map_get(args,"useEnv")){
-        useEnv=str_toInt(map_get(args,"useEnv"));
-    }
-    if(!strMode){
-        printf("Error: mode not specified\n");
-        return 0;
-    }
-    if(str_isEqual(strMode,"c")){
-        conf->mode=HN_MODE_CONNECT;
-        struct connectMode* conn=(struct connectMode*)malloc(sizeof(struct connectMode));
-        conf->connect=conn;
-        str_set(conf->connect->connectUrl,map_get(args,"connectUrl"));
-        if(!conf->connect->connectUrl){
-            printf("Error: connectUrl not specified\n");
-            return 0;
-        }
-    } else if(str_isEqual(strMode,"b")){
-        conf->mode=HN_MODE_BRIDGE;
-        conf->bridge=malloc(sizeof(struct bridgeMode));
+/*
+Sample CLI usage:
+./homenet bridge -config "hn.ini" -p 2000 -url "hn//localhost:8080" -key "test" -salt "test"
+./homenet listen -config "hn.ini" -url "hn//localhost:8080" -p 2000
+./homenet connect -url "hn//localhost:8080"
+./homenet rl -url "hn//localhost:8080" -key "test" -rlpass "test" -ip "192.168.0.10:2000"
+./homenet query -url "hn//localhost:8080" -name "test.hn.local" -key "test" -salt "test"
+*/
 
-        conf->bridge->port=0;
 
-        char* file=configFile;
-        char key[50];
-        char value[200];
+char *mapping[][4] = {
+//    KEY        | CLI KEY |  CONFIG KEY |  ENV KEY
+    {"mode",        NULL,      "Mode",      "MODE"},
+    {"config-file", "-config", NULL,        "CONFIG_FILE"},
+    {"use-env",     "-env",    "Use Env",   NULL},
+    {"url",         "-url",    "URL",       "URL"},
+    {"key",         "-key",    "Key",       "KEY"},
+    {"salt",        "-salt",   "Salt",      "SALT"},
+    {"master-key",  NULL,     "Master Key", "MASTER_KEY"},
+    {"port",        "-p",     "Port",       "PORT"},
+    {"name",        "-name",  "Name",       "NAME"},
+    {"local-ip",    "-ip",    "Local IP",   "LOCAL_IP"},
+};
 
-        // Read from config file
-        if(str_len(configFile)){
-        while(readConfigFile(key,value,file,NULL)){
-        if(file){
-            file=NULL;
-        }
-        if(str_isEqual(key,"masterKey")){
-            str_set(conf->bridge->context.masterKey,value);
-        }
-        else if(str_isEqual(key,"port")){
-            conf->bridge->port=str_toInt(value);
-        }
-        else if(str_isEqual(key,"rlId")){
-            str_set(conf->bridge->rlId,value);
-        }
-        else if(str_isEqual(key,"rlUrl")){
-            str_set(conf->bridge->rlUrl,value);
-        }
-        else if(str_isEqual(key,"rlPassword")){
-            str_set(conf->bridge->rlPass,value);
+/*
+To update the config, modify the "mapping" above and modify "parseArgs" func accordingly
+*/
+
+int getMappedKey(char* mappedKey, char* key, int mappingIndex){
+    int i;
+    for(i=0;i<sizeof(mapping)/sizeof(mapping[0]);i++){
+        if(mapping[i][mappingIndex]&&str_isEqual(key,mapping[i][mappingIndex])){
+            mappedKey=mapping[i][0];
+            return 1;
         }
     }
-    file=configFile;
+    return 0;
+}
+
+int mapMode(char *s){
+    //Accepted strings: c, b, l, r, q, Connect, Bridge, Listen, Reverse, Query
+    //any casing is fine
+    char str[str_len(s) + 5];
+    str_set(str, s);
+    str_toLower(str);
+    str_strip(str);
+    if (str_startswith(str, "c"))
+    {
+        return HN_MODE_CONNECT;
+    }
+    else if (str_startswith(str, "b"))
+    {
+        return HN_MODE_BRIDGE;
+    }
+    else if (str_startswith(str, "l"))
+    {
+        return HN_MODE_LISTEN;
+    }
+    else if (str_startswith(str, "r"))
+    {
+        return HN_MODE_REVERSE_LISTEN;
+    }
+    else if (str_startswith(str, "q"))
+    {
+        return HN_MODE_QUERY;
+    }
+    else
+    {
+        return -1;
+    }
+}
+
+int envToMap(Map* map){
+    int i;
+    for(i=0;i<sizeof(mapping)/sizeof(mapping[0]);i++){
+        if(mapping[i][3]){
+            char* value = getenv(mapping[i][3]);
+            if(value){
+                char* val=malloc(str_len(value)+1);
+                str_set(val,value);
+                map_set(map,mapping[i][0],val,1);
+            }
         }
-        //read from Env
-        if(getEnv("PORT"))
-            conf->bridge->port = str_toInt(getEnv("PORT"));
-        if(getEnv("RL_ID"))
-        str_set(conf->bridge->rlId,getEnv("RL_ID"));
-        if(getEnv("RL_URL"))
-        str_set(conf->bridge->rlUrl,getEnv("RL_URL"));   
-        if(getEnv("RL_PASSWORD"))
-        str_set(conf->bridge->rlPass,getEnv("RL_PASSWORD")); 
-        if(getEnv("MASTER_KEY"))
-        str_set(conf->bridge->context.masterKey,getEnv("MASTER_KEY"));
-        // Read from args
-        if(map_get(args,"port"))
-            conf->bridge->port = str_toInt(map_get(args,"port"));
-        if(map_get(args,"rlId"))
-        str_set(conf->bridge->rlId,map_get(args,"rlId"));
-        if(map_get(args,"rlUrl"))
-        str_set(conf->bridge->rlUrl,map_get(args,"rlUrl")); 
-        if(map_get(args,"rlPassword"))
-        str_set(conf->bridge->rlPass,map_get(args,"rlPassword"));  
-        if(map_get(args,"masterKey"))
-        str_set(conf->bridge->context.masterKey,map_get(args,"masterKey"));
-        bridgeContextInit(&(conf->bridge->context));
-        // read listen keys from file, needs to be called after bridgeContextInit
-        if(str_len(configFile)){
-        char* section = "Listen Keys";
-        while(readConfigFile(key,value,file,section)){
+    }
+    return 1;
+}
+
+int argsToMap(Map* map, int argc, char *argv[]){
+// we are dynamically allocating memory for value, remember to be free later
+int i=0;
+while(i<argc){
+    char* key = NULL;
+    char* value = NULL;
+    if(i==0){
+        //its the mode, its handled seperately since it is does not have any associated key
+        char* val=malloc(str_len(argv[i])+1);
+        str_set(val,argv[i]);
+        map_set(map,"mode",val,1);
+        continue;
+    }
+    if(getMappedKey(key,argv[i],1)){
+        value = argv[i+1];
+        char* val=malloc(str_len(value)+1);
+        str_set(val,value);
+        map_set(map,key,val,1);
+    }
+    else{
+            printf("arg not mapped: %s, val: %s\n",argv[i],argv[i+1]);
+        }
+    i++;
+}
+return 1;
+}
+
+int configFileToMap(Map* map, char* file, char* section){
+    // we are dynamically allocating memory for value, remember to be free later
+    char key[50];
+    char value[200];
+    while(readConfigFile(key,value,file,section)){
         if(file){
             file=NULL;
             section=NULL;
         }
-        map_set(&(conf->bridge->context.listenKeys),key,value,0);
-    }
-        char* section2 = "Query Keys";
-        file=configFile;
-        while(readConfigFile(key,value,file,section2)){
-        if(file){
-            file=NULL;
-            section2=NULL;
-        }
-        map_set(&(conf->bridge->context.queryKeys),key,value,0);
-    }
-        }
-    } else if(str_isEqual(strMode,"l")){
-        conf->mode=HN_MODE_LISTEN;
-        conf->listen=malloc(sizeof(struct listenMode));
-        if(map_get(args,"port")){
-            conf->listen->port = str_toInt(map_get(args,"port"));
+        char* mappedKey = NULL;
+        if(getMappedKey(mappedKey,key,2)){
+            char* val=malloc(str_len(value)+1);
+            str_set(val,value);
+            map_set(map,key,val,1);
         }
         else{
-            conf->listen->port=0;
+            printf("Config file key not mapped: %s, val: %s\n",key,value);
         }
-        str_set(conf->connect->connectUrl,map_get(args,"connectUrl"));
-        if(!conf->connect->connectUrl){
-            printf("Error: connectUrl not specified\n");
-            return 0;
-        }
-    }
-    else if(str_isEqual(strMode,"q")){
-        conf->mode=HN_MODE_QUERY;
-        conf->query=malloc(sizeof(struct queryMode));
-        str_set(conf->query->bridgeUrl,map_get(args,"bridgeUrl"));
-        if(!conf->query->bridgeUrl){
-            printf("Error: bridgeUrl not specified\n");
-            return 0;
-        }
-        str_set(conf->query->name,map_get(args,"name"));
-        str_set(conf->query->pass,map_get(args,"pass"));
-    }
-    else if(str_isEqual(strMode,"r")){
-        conf->mode=HN_MODE_REVERSE_LISTEN;
-        conf->rl=malloc(sizeof(struct RLMode));
-        str_set(conf->rl->localIp,map_get(args,"localIp"));
-        str_set(conf->rl->rlId,map_get(args,"rlId"));
-        str_set(conf->rl->rlUrl,map_get(args,"rlUrl"));
-        str_set(conf->rl->rlPass,map_get(args,"rlPass"));
     }
 }
 
-int argsToMap(Map* map, int argc, char *argv[]){
-//
+int getValue(char* key, char* value, Map* args){
+if(map_get(&args,key)){
+        str_set(value,map_get(&args,key));
+        return 1;
+    }
+    return 0;
+}
+
+int getValueInt(char* key, int* value, Map* args){
+    char val[200];
+    int r=getValue(key,val,args);
+    if(r){
+        *value=str_toInt(val);
+    }
+    return r;
+}
+
+int getValueBool(char* key, int* value, Map* args){
+    //accepts: true, false, 1, 0
+    char val[200];
+    int r=getValue(key,val,args);
+    if(r){
+        if(str_isEqual(val,"true")){
+            *value=1;
+        }
+        else if(str_isEqual(val,"false")){
+            *value=0;
+        }
+        else{
+            *value=str_toInt(val);
+        }
+    }
+    return r;
+}
+
+int parseArgs(hn_Config* conf,Map* args, char* file){
+    // Extract the mode first
+    char strMode[20]="";
+    int mode=-1;
+    if(!map_get(&args,"mode")){
+        printf("No mode specified, using default: BRIDGE\n");
+        str_set(strMode,"b");
+    }
+    else{
+        str_set(strMode,map_get(&args,"mode"));
+    }
+    mode=mapMode(strMode);
+    if(mode==-1){
+        printf("Invalid mode: %s\n",strMode);
+        return 0;
+    }
+    conf->mode=mode;
+    if(mode==HN_MODE_BRIDGE){
+        printf("Setting up in bridge mode..\n");
+        struct bridgeMode* bm;
+        bm=malloc(sizeof(struct bridgeMode));
+        bzero(bm,sizeof(struct bridgeMode));
+        conf->bridge=bm;
+        //now setup the bridge mode struct
+        conf->bridge->port=-1;
+        bridgeContextInit(&(bm->context));
+        // add the map keys
+        if(str_len(file)>1){
+            char* section = "Listen Keys";
+            configFileToMap(&bm->context.listenKeys, file, section);
+            char* section2 = "Query Keys";
+            configFileToMap(&bm->context.queryKeys, file, section2);
+        }
+        getValueInt("port",&bm->port,args);
+        getValue("key",bm->rlId,args);
+        getValue("url",bm->rlUrl,args);
+        getValue("salt",bm->rlPass,args);
+        getValue("master-key",bm->context.masterKey,args);
+    }
+    else if(mode==HN_MODE_LISTEN){
+        printf("Setting up in listen mode..\n");
+        struct listenMode* lm;
+        lm=malloc(sizeof(struct listenMode));
+        bzero(lm,sizeof(struct listenMode));
+        conf->listen=lm;
+        //now setup the listen mode struct
+        conf->listen->port=0;
+        getValueInt("port",&lm->port,args);
+        getValue("url",lm->connectUrl,args);
+    }
+    else if(mode==HN_MODE_REVERSE_LISTEN){
+        printf("Setting up in reverse listen mode..\n");
+        struct RLMode* rlm;
+        rlm=malloc(sizeof(struct RLMode));
+        bzero(rlm,sizeof(struct RLMode));
+        conf->rl=rlm;
+        //now setup the reverse listen mode struct
+        conf->listen->port=0;
+        getValue("url",rlm->rlUrl,args);
+        getValue("key",rlm->rlId,args);
+        getValue("salt",rlm->rlPass,args);
+        getValue("local-ip",rlm->localIp,args);
+    }
+    else if(mode==HN_MODE_CONNECT){
+        printf("Setting up in connect mode..\n");
+        struct connectMode* cm;
+        cm=malloc(sizeof(struct connectMode));
+        bzero(cm,sizeof(struct connectMode));
+        conf->connect=cm;
+        //now setup the connect mode struct
+        getValue("url",cm->connectUrl,args);
+        cm->sock=NULL;
+    }
+    else if(mode==HN_MODE_QUERY){
+        printf("Setting up in query mode..\n");
+        struct queryMode* qm;
+        qm=malloc(sizeof(struct queryMode));
+        bzero(qm,sizeof(struct queryMode));
+        conf->query=qm;
+        //now setup the connect mode struct
+        getValue("url",qm->bridgeUrl,args);
+        getValue("name",qm->name,args);
+        getValue("key",qm->key,args);
+        getValue("salt",qm->salt,args);
+    }
+}
+
+int confInit(hn_Config* conf, int argc, char *argv[]){
+    conf->mode=-1;
+    conf->connect=NULL;
+    conf->bridge=NULL;
+    conf->listen=NULL;
+    conf->query=NULL;
+    conf->rl=NULL;
+    Map args;
+    map_init(&args);
+    argsToMap(&args,argc,argv);
+    int useEnv=1;
+    char configFile[80]=CONFIG_PATH;
+    if(map_get(&args,"use-env")){
+        useEnv=str_toInt(map_get(&args,"use-env"));
+    }
+    if(useEnv){
+        envToMap(&args);
+    }
+    if(map_get(&args,"config-file")){
+        str_set(configFile,map_get(&args,"config-file"));
+    }
+    //We need to set the map now in order: config file, env, cli
+    // we didnt all it in order before so that we can extract useEnv and configFile
+    // Not very optimised way but works since this only runs once on application startup
+    //These calls will replace existing records and free the values if needed
+    if(str_len(configFile)>1)
+    configFileToMap(&args,configFile,NULL);
+    envToMap(&args);
+    argsToMap(&args,argc,argv);
+    //Now read these values into the config struct
+    parseArgs(conf,&args,configFile);
+    map_cleanup(&args,1); //this will free the dymamic allocated memory of values
+    return 1;
 }
