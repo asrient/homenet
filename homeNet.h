@@ -1,5 +1,5 @@
 #include "utils.h"
-#include "Netutils.h"
+#include "netUtils.h"
 
 #ifndef HN_H
 #define HN_H
@@ -120,7 +120,7 @@ int broadcastBridge;
 typedef struct hn_Socket hn_Socket;
 
 int confInit(hn_Config* conf, int argc, char *argv[]);
-int isQueryKey(char* key, BridgeContext* context);
+char* getQuerySalt(char* id, BridgeContext* context);
 int addWaitingSock(char* listenId, char* otp, hn_Socket* sock, BridgeContext* context);
 int removeWaitingSocket(BridgeContext* context,char* listenId, char* otp);
 int getWaitingSocket(hn_Socket *sock,BridgeContext* context,char* listenId, char* otp);

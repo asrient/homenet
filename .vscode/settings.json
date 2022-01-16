@@ -34,6 +34,7 @@
         "uio.h": "c",
         "sysexits.h": "c",
         "__node_handle": "c",
-        "uuid.h": "c"
+        "uuid.h": "c",
+        "netutils.h": "c"
     }
 }

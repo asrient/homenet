@@ -1,6 +1,8 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <strings.h>
 #include "utils.h"
+#include "netUtils.h"
 #include "homeNet.h"
 
 
@@ -80,7 +82,7 @@ int addWaitingSock(char* listenId, char* otp, hn_Socket* sock, BridgeContext* co
 
 ///////////////////////////////////////////////////////////////////////////////
 
-int getQuerySalt(char* id, BridgeContext* context){
+char* getQuerySalt(char* id, BridgeContext* context){
     char* salt = map_get(&(context->queryKeys),id);
     if(!salt){
         // format: q-id
@@ -218,15 +220,17 @@ int envToMap(Map* map){
 
 int argsToMap(Map* map, int argc, char *argv[]){
 // we are dynamically allocating memory for value, remember to be free later
-int i=0;
+int i=1;
 while(i<argc){
     char* key = NULL;
     char* value = NULL;
-    if(i==0){
+    if(i==1){
         //its the mode, its handled seperately since it is does not have any associated key
         char* val=malloc(str_len(argv[i])+1);
         str_set(val,argv[i]);
         map_set(map,"mode",val,1);
+        printf("[argsToMap] Setting mode from cli: %s\n",val);
+        i++;
         continue;
     }
     if(getMappedKey(key,argv[i],1)){
@@ -234,6 +238,7 @@ while(i<argc){
         char* val=malloc(str_len(value)+1);
         str_set(val,value);
         map_set(map,key,val,1);
+        printf("[argsToMap] Setting %s: %s\n",key, val);
     }
     else{
             printf("arg not mapped: %s, val: %s\n",argv[i],argv[i+1]);
@@ -265,8 +270,8 @@ int configFileToMap(Map* map, char* file, char* section){
 }
 
 int getValue(char* key, char* value, Map* args){
-if(map_get(&args,key)){
-        str_set(value,map_get(&args,key));
+if(map_get(args,key)){
+        str_set(value,map_get(args,key));
         return 1;
     }
     return 0;
@@ -303,12 +308,12 @@ int parseArgs(hn_Config* conf,Map* args, char* file){
     // Extract the mode first
     char strMode[20]="";
     int mode=-1;
-    if(!map_get(&args,"mode")){
+    if(!map_get(args,"mode")){
         printf("No mode specified, using default: BRIDGE\n");
         str_set(strMode,"b");
     }
     else{
-        str_set(strMode,map_get(&args,"mode"));
+        str_set(strMode,map_get(args,"mode"));
     }
     mode=mapMode(strMode);
     if(mode==-1){
@@ -395,18 +400,22 @@ int confInit(hn_Config* conf, int argc, char *argv[]){
     conf->rl=NULL;
     Map args;
     map_init(&args);
+    printf("Parsing cli args..\n");
     argsToMap(&args,argc,argv);
+    printf("Parsing cli args.. Completed.\n");
     int useEnv=1;
     char configFile[80]=CONFIG_PATH;
     if(map_get(&args,"use-env")){
         useEnv=str_toInt(map_get(&args,"use-env"));
     }
+    printf("Use env: %d\n",useEnv);
     if(useEnv){
         envToMap(&args);
     }
     if(map_get(&args,"config-file")){
         str_set(configFile,map_get(&args,"config-file"));
     }
+    printf("Config File: %s\n",configFile);
     //We need to set the map now in order: config file, env, cli
     // we didnt all it in order before so that we can extract useEnv and configFile
     // Not very optimised way but works since this only runs once on application startup
@@ -416,6 +425,7 @@ int confInit(hn_Config* conf, int argc, char *argv[]){
     envToMap(&args);
     argsToMap(&args,argc,argv);
     //Now read these values into the config struct
+    printf("Parsing config map to final struct..\n");
     parseArgs(conf,&args,configFile);
     map_cleanup(&args,1); //this will free the dymamic allocated memory of values
     return 1;

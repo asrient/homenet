@@ -9,6 +9,7 @@
 
 //
 int main(int argc, char *argv[]){
+    printf("Welcome to HomeNet!\n");
     hn_Config conf;
     int r=0;
     r=confInit(&conf, argc, argv);
@@ -16,6 +17,7 @@ int main(int argc, char *argv[]){
         printf("Error building config\n");
         return 1;
     }
+    printf("[CLI] Config built, starting prog..\n");
     r=hn_start(&conf);
     if(r<=0){
         printf("Error running app\n");

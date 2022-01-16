@@ -10,8 +10,50 @@
 #include <uuid/uuid.h> // will work on mac and linux
 #include <time.h>
 
-char* HTTP_TEXT="HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n<html><body><h1>Welcome to HomeNet!</h1>You have reached a HomeNet bridge.</body></html>";
+/****************************************************************************
+ * Internal Functions Declearations
+****************************************************************************/
 
+// General
+char *generateCode(char* randomString,int length);
+int charIndex(char* str,int start, int stop, char c);
+
+// Auth
+int generateAuthResp(char* buff, char* nonce, char* key, char* salt);
+int generateAuthRespFromPassword(char* out, char* nonce, char* password);
+int verifyAuthRespFromMap(char* buff, char* nonce, Map* keyStore);
+int verifyAuthResp(char* buff, char* nonce, char* key, char* salt);
+int generateAuthChallenge(char* out, char* nonceOut);
+int authThrowChallenge(char* buff, Socket* sock, Map* keyStore);
+int authSolve(char* buff,Socket* sock, char* key, char* salt, char* password);
+
+// Protocol message
+int hn_sendMsg(Socket* sock, char* buff);
+int hn_receiveMsg(char* buff, int max, Socket* sock);
+
+// Starting handshake
+int initializeConnect(char* constUrl, Socket* sock, hn_Socket* waitingHnSock, BridgeContext* context);
+int initializeListenNotify(char* listenId, char* salt, char* url, Socket* sock);
+int initializeListenConn(char* listenId, char* otp, char* url, Socket* sock);
+
+// Start program in various modes
+int start_bridge(hn_Config *conf);
+
+// Handle events from the sockets
+int handleNew(Socket* sock, hn_Config* conf, List* sockList);
+int handleRead(Socket* sock, hn_Config* conf, List* sockList);
+int handleClose(Socket* sock, hn_Config* conf, List* sockList);
+int processEvent(Socket* sock, int event, List* sockList, hn_Config* conf);
+int hn_loop(List* sockList, hn_Config* conf);
+
+// HNSocket Utilities
+void hn_sockInit(hn_Socket* hnSock, Socket* sock, int mode);
+void hn_sockCleanup(hn_Socket* hnSock, BridgeContext* context);
+
+/*****************************************************************************/
+
+
+char* HTTP_TEXT="HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n<html><body><h1>Welcome to HomeNet!</h1>You have reached a HomeNet bridge.</body></html>";
 
 char *generateCode(char* randomString,int length) {    
     static int mySeed = 25011984;
@@ -161,7 +203,7 @@ return sock_write(sock,buff,str_len(buff));
 int hn_receiveMsg(char* buff, int max, Socket* sock){
 str_set(buff,"");
 int totalRead=0;
-while (!str_endsWith(buff,HN_MSG_END)&&totalRead<max){
+while (!str_endswith(buff,HN_MSG_END)&&totalRead<max){
     int read=sock_read(buff+totalRead,max-totalRead,sock);
     if(read==0){
         printf("Connection closed\n");
@@ -173,7 +215,7 @@ while (!str_endsWith(buff,HN_MSG_END)&&totalRead<max){
     }
     totalRead+=read;
 }
-if(!str_endsWith(buff,HN_MSG_END)){
+if(!str_endswith(buff,HN_MSG_END)){
     printf("Received message is too long or corrupted: %s\n",buff);
     return 0;
 }
@@ -266,14 +308,14 @@ return r;
 int authSolve(char* buff,Socket* sock, char* key, char* salt, char* password){
 // Will check if it throws a challenge and if it does, will solve it
 //if not the next read message will be passed to buff
-if(!str_startsWith(buff,"AUTH ")){
+if(!str_startswith(buff,"AUTH ")){
     str_set(buff,"");
     int read=hn_receiveMsg(buff,600,sock);
     if(read<=0){
         printf("Could not read from socket\n");
         return 0;
     }
-    if(!str_startsWith(buff,"AUTH ")){
+    if(!str_startswith(buff,"AUTH ")){
         printf("Received message is not an auth challenge\n");
         return 1;
     }
@@ -337,9 +379,9 @@ struct sockaddr_in ipAddr;
 struct sockaddr_in* ip=&ipAddr;
 int connToIp=0;
     // First try connecting as ip address, if fails try domain name
-    connToIp=str_toIpAddr(ip, first);
+    connToIp=str_toIpAddr((struct sockaddr*)ip, first);
 if(!connToIp&&isDomainName(first)){
-    connToIp=dns_getIpAddr(ip, first);
+    connToIp=dns_getIpAddr((struct sockaddr*)ip, first);
    } 
    // We consider connId to be a listenId
    // Try getting ip linked to listenId from mdns store
@@ -372,7 +414,7 @@ if(context&&waitingHnSock&&!connToIp){
     }
 }
 if(connToIp)
-if(!createTcpConnection(sock,ip)){
+if(!createTcpConnection(sock,(struct sockaddr*)ip)){
     printf("Could not create socket\n");
     return 0;
 } 
@@ -528,7 +570,7 @@ if(conf->bridge->port>=0){
         printf("Could not create server socket\n");
         return 0;
     }
-    sock_setNonBlocking(&servSock);
+    sock_setNonBlocking(servSock);
 printf("[Server started]\n IP addr: ");
 ipAddr_print(&(servSock->ipAddr));
 list_add(&sockList,servSock);
@@ -602,7 +644,7 @@ int handleNew(Socket* sock, hn_Config* conf, List* sockList){
         sock_setTimeout(sock,SOCK_TIMEOUT_SECS);
         char buff[600]="";
         int read=hn_receiveMsg(buff,600,sock);
-        if(str_startsWith(buff,"HN1.0/CONNECT ")){
+        if(str_startswith(buff,"HN1.0/CONNECT ")){
             char *saveptr;
             char* txt = strtok_r(buff, " ", &saveptr);
             char* connUrl = strtok_r(NULL, " ", &saveptr);
@@ -641,7 +683,7 @@ int handleNew(Socket* sock, hn_Config* conf, List* sockList){
                 return 0;
             }
         }
-        else if(str_startsWith(buff,"HN1.0/LISTEN_NOTIFY")){
+        else if(str_startswith(buff,"HN1.0/LISTEN_NOTIFY")){
             // Check if listenId is received
             // if listenId is received and exists in listenKeys, authenticate it
             //if not received, create one
@@ -653,11 +695,11 @@ int handleNew(Socket* sock, hn_Config* conf, List* sockList){
             char* id = strtok_r(NULL, " ", &saveptr);
             char listenId[20];
             str_set(listenId,id);
-            if(listenId&&getSaltForListenId(listenId,&conf->bridge->context.listenKeys)){
+            if(str_len(listenId)>1&&getSaltForListenId(listenId,&conf->bridge->context)){
                 str_set(buff,"");
                 Map subMap;
                 map_init(&subMap);
-                map_set(&subMap,listenId,getSaltForListenId(listenId,&conf->bridge->context.listenKeys),0);
+                map_set(&subMap,listenId,getSaltForListenId(listenId,&conf->bridge->context),0);
                 int r=authThrowChallenge(buff,sock,&subMap);
                 map_cleanup(&subMap,0);
                 if(!r){
@@ -679,7 +721,7 @@ int handleNew(Socket* sock, hn_Config* conf, List* sockList){
             str_concat(buff,listenId);
             hn_sendMsg(sock,buff);
         }
-        else if(str_startsWith(buff,"HN1.0/LISTEN_CONNECT ")){
+        else if(str_startswith(buff,"HN1.0/LISTEN_CONNECT ")){
             // extract listenId and otp
             // get corresponding waiting socket
             //remove socket from waiting list
@@ -719,7 +761,7 @@ int handleNew(Socket* sock, hn_Config* conf, List* sockList){
                 return 0;
             }
         }
-        else if(str_startsWith(buff,"HN1.0/QUERY ")){
+        else if(str_startswith(buff,"HN1.0/QUERY ")){
             // authenticate
             // check mdnsRecors and send the ones requested
             //close socket, this will not hit the loop
@@ -775,7 +817,7 @@ int handleRead(Socket* sock, hn_Config* conf, List* sockList){
             printf("Could not read from socket\n");
             return 0;
         }
-        if(!str_startsWith(buff,"LISTEN_OTP ")){
+        if(!str_startswith(buff,"LISTEN_OTP ")){
             printf("Received message is not an listen otp\n");
             return 0;
         }
@@ -856,7 +898,7 @@ int isFirst=1;
 do{
 int event=SOCK_EVENT_ERROR;
 if(isFirst){
-    event=waitForEvent(&selSock, &sockList);
+    event=waitForEvent(&selSock, sockList);
     isFirst=0;
 }
 else
@@ -869,7 +911,7 @@ if(event==SOCK_EVENT_TIMEOUT){
     printf("Server is bored :3\n");
     continue;
 }
-processEvent(selSock, event, &sockList, conf);
+processEvent(selSock, event, sockList, conf);
 }
 while(1);
 return 0;

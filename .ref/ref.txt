@@ -1,3 +1,6 @@
 cc test.c utils.c netUtils.c -L/usr/local/Cellar/openssl@1.1/1.1.1m/lib -lssl -lcrypto 
 
 cc test/mdns.c utils.c netUtils.c dns/codec.c dns/output.c dns/mappings.c
+
+# Homenet compile, without DNS packet calls
+cc utils.c netUtils.c store.c homeNet.c cli.c sha/sha2.c
