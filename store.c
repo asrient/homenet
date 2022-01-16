@@ -49,6 +49,7 @@ int getWaitingSocket(hn_Socket *sock,BridgeContext* context,char* listenId, char
 }
 
 int removeWaitingSocket(BridgeContext* context,char* listenId, char* otp){
+    //dont free memory, just remove it from the map
     hn_Socket *listenSock=getListeningSock(listenId,context);
         if(!listenSock){
             return 0;

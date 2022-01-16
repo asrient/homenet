@@ -679,6 +679,46 @@ int handleNew(Socket* sock, hn_Config* conf, List* sockList){
             str_concat(buff,listenId);
             hn_sendMsg(sock,buff);
         }
+        else if(str_startsWith(buff,"HN1.0/LISTEN_CONNECT ")){
+            // extract listenId and otp
+            // get corresponding waiting socket
+            //remove socket from waiting list
+            // setup relay
+            // send back connected ack to both sockets
+            char *saveptr;
+            char* txt = strtok_r(buff, " ", &saveptr);
+            char* listenId = strtok_r(NULL, " ", &saveptr);
+            char* otp = strtok_r(NULL, " ", &saveptr);
+            if(listenId&&otp){
+                //get corresponding waiting socket
+                hn_Socket* nextHnsock=NULL;
+                int r=getWaitingSocket(nextHnsock,&conf->bridge->context,listenId, otp);
+                if(!r){
+                printf("Could not get waiting sock for req: %s\n",buff);
+                sock_destroy(sock,NULL);
+                return 0;
+                }
+                //Remove sock from waiting list
+                removeWaitingSocket(&conf->bridge->context,listenId, otp);
+                //create a hnsock for the socket
+                hn_Socket* hnSock=malloc(sizeof(hn_Socket));
+                hn_sockInit(hnSock,sock,SOCK_MODE_RELAY);
+                // setup relay
+                hnSock->relay.next=nextHnsock->sock;
+                hnSock->relay.isWaiting=0;
+                nextHnsock->relay.next=sock;
+                nextHnsock->relay.isWaiting=0;
+                // sending connect ack to both sockets
+                str_set(buff,"CONNECTED");
+                hn_sendMsg(sock,buff);
+                hn_sendMsg(nextHnsock->sock,buff);
+            }
+            else{
+                printf("Could not extract listenId and otp %s\n",buff);
+                sock_destroy(sock,NULL);
+                return 0;
+            }
+        }
         else if(str_startsWith(buff,"HN1.0/QUERY ")){
             // authenticate
             // check mdnsRecors and send the ones requested
