@@ -478,8 +478,7 @@ Socket* sock=(Socket*) list_forEach(list);
                     return SOCK_EVENT_NEW;
                 }
                 else{
-                    if(newSock){
-                        sock_cleanup(newSock);
+                    if(newSock!=NULL){
                         free(newSock);
                     }
                     else

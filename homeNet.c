@@ -93,7 +93,7 @@ void textInput(char* buff, int max) {
     }
     if (buff[0] == '\n') {
         ConsecutiveEnterCount++;
-        if (ConsecutiveEnterCount >= 2) {
+        if (ConsecutiveEnterCount >= 1) {
         break;
         }
     }
@@ -671,19 +671,24 @@ int start_connect(hn_Config *conf){
         char* buff=conf->connect->payload;
         if(str_len(buff)<=0){
             // take input from cli
+            printf("--------------------------------\n");
             printf("Enter Request Data: \n");
             textInput(buff,600);
+            printf("--------------------------------\n");
         }
+        else{
+            sleep(1);
+            printf("Sending payload: %s\n",buff);
+        }
+        printf("Sending request..\n");
         int write=sock_write(sock,buff,str_len(buff));
         printf("Sent %d bytes.\n",write);
         str_reset(buff);
         int read=sock_read(buff,600,sock);
-        if(read<=0){
-            printf("Could not read from socket\n");
-        }
-        else{
-            printf("Read %d bytes.\n",read);
-            printf("%s\n",buff);
+        while(read>0){
+            printf("%s",buff);
+            str_reset(buff);
+            read=sock_read(buff,600,sock);
         }
         sock_destroy(sock, NULL);
         return 1;
