@@ -386,7 +386,8 @@ int createTcpConnection( Socket* sock, struct sockaddr* ip){
     if(fd<0){
         return 0;
     }
-    sock_init(sock,TCPSOCKET,fd);
+    // Not initing the socket here, we consider it to be already inited
+    sock->fd=fd;
     sock->isAlive=SOCKET_ALIVE;
     sock->ipAddr=*ip;
     if (connect(sock->fd, ip, sizeof(*ip)) < 0){
@@ -477,8 +478,12 @@ Socket* sock=(Socket*) list_forEach(list);
                     return SOCK_EVENT_NEW;
                 }
                 else{
-                    sock_cleanup(newSock);
-                    free(newSock);
+                    if(newSock){
+                        sock_cleanup(newSock);
+                        free(newSock);
+                    }
+                    else
+                    printf("[WaitLoop] ERROR: could not allocate new sock to accept\n");
                     FD_CLR(sock->fd, &readSet);
                     fdsToProcess--;
                 }

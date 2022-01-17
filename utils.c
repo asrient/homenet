@@ -138,6 +138,10 @@ char* str_strip(char* str){
   return str;
 }
 
+void str_reset(char* str){
+    bzero(str,str_len(str));
+}
+
 char* str_concat(char* str, char* str2){
     // Use strcat directly to take multiple inputs
     strcat(str,str2);

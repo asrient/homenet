@@ -17,6 +17,7 @@
 // General
 char *generateCode(char* randomString,int length);
 int charIndex(char* str,int start, int stop, char c);
+void textInput(char* buff, int max);
 
 // Auth
 int generateAuthResp(char* buff, char* nonce, char* key, char* salt);
@@ -49,6 +50,7 @@ int hn_loop(List* sockList, hn_Config* conf);
 // HNSocket Utilities
 void hn_sockInit(hn_Socket* hnSock, Socket* sock, int mode);
 void hn_sockCleanup(hn_Socket* hnSock, BridgeContext* context);
+Socket* createTcpSocket();
 
 /*****************************************************************************/
 
@@ -80,6 +82,26 @@ int generateUUID(char *uuid) {
     uuid_unparse(uuid_t, uuid);
     return 0;
 }
+
+void textInput(char* buff, int max) {
+    // Scan text input for console with support for newline
+    // 2 consequtive newlines will exit
+    unsigned ConsecutiveEnterCount = 0;
+    for (;;) {
+    if (fgets(buff, max, stdin) == NULL) {
+        break;  // handle error or EOF
+    }
+    if (buff[0] == '\n') {
+        ConsecutiveEnterCount++;
+        if (ConsecutiveEnterCount >= 2) {
+        break;
+        }
+    }
+    else ConsecutiveEnterCount = 0;
+    buff+=strlen(buff);
+    }
+}
+
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -113,7 +135,8 @@ if(key){
     str_concat(buff," ");
 }
 else
-str_set(buff,"");
+str_reset(buff);
+str_reset(buff);
 str_set(raw,nonce);
 str_concat(raw,"|");
 if(key)
@@ -197,11 +220,13 @@ return -1;
 
 int hn_sendMsg(Socket* sock, char* buff){
 str_concat(buff,HN_MSG_END);
+printf("[hn_sendMsg] len: %d\n",str_len(buff));
+printf("[hn_sendMsg] Sending: %s\n",buff);
 return sock_write(sock,buff,str_len(buff));
 }
 
 int hn_receiveMsg(char* buff, int max, Socket* sock){
-str_set(buff,"");
+str_reset(buff);
 int totalRead=0;
 while (!str_endswith(buff,HN_MSG_END)&&totalRead<max){
     int read=sock_read(buff+totalRead,max-totalRead,sock);
@@ -215,14 +240,17 @@ while (!str_endswith(buff,HN_MSG_END)&&totalRead<max){
     }
     totalRead+=read;
 }
+printf("[hn_receiveMsg] Received bytes: %d\n",totalRead);
 if(!str_endswith(buff,HN_MSG_END)){
     printf("Received message is too long or corrupted: %s\n",buff);
     return 0;
 }
-for(int i=0;i<str_len(HN_MSG_END);i++){
-    buff[str_len(buff)-1-i]=0;
+int oldLen = str_len(buff);
+for(int i=1;i<=str_len(HN_MSG_END);i++){
+    buff[oldLen-i]=0;
     totalRead--;
 }
+printf("[hn_receiveMsg] Received: |%s|\n",buff);
 return totalRead;
 }
 
@@ -283,11 +311,21 @@ void sock_destroy(Socket* sock, BridgeContext* context){
     free(sock);
 }
 
+Socket* createTcpSocket(){
+    Socket* sock=malloc(sizeof(Socket));
+    if(sock==NULL){
+        printf("Error allocating memory for socket\n");
+        return NULL;
+    }
+    sock_init(sock,TCPSOCKET,-1);
+    return sock;
+}
+
 /////////////////////////////////////////////////////////////////////////////////////////
 
 int authThrowChallenge(char* buff, Socket* sock, Map* keyStore){
 // Will send a challenge and wait for a response
-str_set(buff,"");
+str_reset(buff);
 char nonce[15]="";
 generateAuthChallenge(buff,nonce);
 int r=hn_sendMsg(sock,buff);
@@ -295,7 +333,7 @@ if(r<=0){
     printf("Error sending challenge\n");
     return 0;
 }
-str_set(buff,"");
+str_reset(buff);
 r=hn_receiveMsg(buff,600,sock);
 if(r<=0){
     printf("Error receiving challenge response\n");
@@ -309,7 +347,7 @@ int authSolve(char* buff,Socket* sock, char* key, char* salt, char* password){
 // Will check if it throws a challenge and if it does, will solve it
 //if not the next read message will be passed to buff
 if(!str_startswith(buff,"AUTH ")){
-    str_set(buff,"");
+    str_reset(buff);
     int read=hn_receiveMsg(buff,600,sock);
     if(read<=0){
         printf("Could not read from socket\n");
@@ -323,7 +361,7 @@ if(!str_startswith(buff,"AUTH ")){
         char nonce[200]="";
         str_substring(nonce,buff,5,-1);
         // Calculate the password hash
-        str_set(buff,"");
+        str_reset(buff);
         if(password)
         generateAuthRespFromPassword(buff,nonce,password);
         else
@@ -333,7 +371,7 @@ if(!str_startswith(buff,"AUTH ")){
             printf("Could not write to socket\n");
             return 0;
         }
-        str_set(buff,"");
+        str_reset(buff);
         int read=hn_receiveMsg(buff,600,sock);
         if(read<=0){
             printf("Could not read from socket\n");
@@ -356,7 +394,8 @@ if(str_startswith(url,"hn://")){
     urlPtr=urlPtr+5;
 }
 // Setup the first part of the url
-char* first=str_split(urlPtr,"/");
+char *saveptr1;
+char* first=strtok_r(urlPtr, "/", &saveptr1);
 char connId[50];
 if(!first){
     printf("Could not parse url: %s \n",url);
@@ -452,11 +491,29 @@ do{
         a: {key} {hash}
         b: CONNECTED
     */
+   // Setup the next part of url to process
+   printf("[Connect] extracting next part of url\n");
+    first=strtok_r(NULL, "/", &saveptr1);
+    if(!first){
+        printf("[Connect] No next part in url, done.\n");
+        break;
+    }
+    pStartInd=charIndex(first,0,-1,'#');
+    if(pStartInd>0){
+        str_substring(password,first,pStartInd+1,-1);
+        str_substring(connId,first,0,pStartInd-1);
+    }
+    else{
+        str_set(connId,first);
+        str_set(password,"");
+    }
+    printf("[DEBUG] loop connId: %s, password: %s\n",connId,password);
+    // Now ask the peer to connect to the next url part
     char buff[600]="HN1.0/CONNECT ";
     str_concat(buff,connId);
     hn_sendMsg(sock,buff);
     //read
-    str_set(buff,"");
+    str_reset(buff);
     int r=authSolve(buff,sock,NULL,NULL,password);
     if(r<=0){
         printf("Could not read from socket\n");
@@ -469,21 +526,6 @@ do{
         printf("Unknown response from server: %s\n",buff);
         return 0;
     }
-    // Setup the next part of url to process
-    first=str_split(NULL,"/");
-    if(!first){
-        break;
-    }
-    pStartInd=charIndex(first,0,-1,'#');
-    if(pStartInd>0){
-        str_substring(password,first,pStartInd+1,-1);
-        str_substring(connId,first,0,pStartInd-1);
-    }
-    else{
-        str_set(connId,first);
-        str_set(password,"");
-    }
-    printf("[DEBUG] first: %s, password: %s\n",first,password);
 }
 while(first);
 return 1;
@@ -510,7 +552,7 @@ int initializeListenNotify(char* listenId, char* salt, char* url, Socket* sock){
             str_concat(buff,listenId); 
         }
         hn_sendMsg(sock,buff);
-        str_set(buff,"");
+        str_reset(buff);
     int read=authSolve(buff,sock,NULL,listenId,salt);
     if(read<=0){
         printf("Could not read from socket\n");
@@ -555,7 +597,7 @@ int initializeListenConn(char* listenId, char* otp, char* url, Socket* sock){
         str_concat(buff," ");
         str_concat(buff,otp);
         hn_sendMsg(sock,buff);
-        str_set(buff,"");
+        str_reset(buff);
     int read=hn_receiveMsg(buff,600,sock);
     if(read<=0){
         printf("Could not read from socket\n");
@@ -599,7 +641,7 @@ else{
 }
 if(str_len(conf->bridge->rlUrl)){
     // start a listener to this url
-    Socket* rlSock=malloc(sizeof(Socket));
+    Socket* rlSock=createTcpSocket();
     hn_Socket* rlHnSock=malloc(sizeof(hn_Socket));
     hn_sockInit(rlHnSock,rlSock,SOCK_MODE_LISTEN_OUT);
     if(!initializeListenNotify(conf->bridge->rlId,conf->bridge->rlPass,conf->bridge->rlUrl,rlSock)){
@@ -614,7 +656,43 @@ hn_loop(&sockList,conf);
 }
 
 int start_connect(hn_Config *conf){
-    //
+    //ConnectInitialize the url
+    //once connected, send the payload
+    if(str_len(conf->connect->connectUrl)>1){
+    Socket* sock=createTcpSocket();
+    int r=initializeConnect(conf->connect->connectUrl,sock,NULL,NULL);
+    if(r!=1){
+        printf("Could not connect to url: %s\n",conf->connect->connectUrl);
+        free(sock);
+        return 0;
+    }
+    else{
+        printf("Connected to url: %s\n",conf->connect->connectUrl);
+        char* buff=conf->connect->payload;
+        if(str_len(buff)<=0){
+            // take input from cli
+            printf("Enter Request Data: \n");
+            textInput(buff,600);
+        }
+        int write=sock_write(sock,buff,str_len(buff));
+        printf("Sent %d bytes.\n",write);
+        str_reset(buff);
+        int read=sock_read(buff,600,sock);
+        if(read<=0){
+            printf("Could not read from socket\n");
+        }
+        else{
+            printf("Read %d bytes.\n",read);
+            printf("%s\n",buff);
+        }
+        sock_destroy(sock, NULL);
+        return 1;
+    }
+    }
+    else{
+        printf("[start_connect] No url to connect to\n");
+        return 0;
+    }
 }
 
 int start_listen(hn_Config *conf){
@@ -654,6 +732,7 @@ return 0;
 int handleNew(Socket* sock, hn_Config* conf, List* sockList){
     //the sock is not added to the list yet, its safe to free it if not required
     //Add the sock to the list if you want to keep getting events from it
+    printf("Handling Socket NEW event, fd: %d\n",sock->fd);
     if(conf->mode==HN_MODE_LISTEN){
          //Connect accourding to the url in config
     }
@@ -674,25 +753,43 @@ int handleNew(Socket* sock, hn_Config* conf, List* sockList){
             }
             hn_Socket* hnSock=malloc(sizeof(hn_Socket));
             hn_sockInit(hnSock,sock,SOCK_MODE_RELAY);
-            Socket* nextSock=malloc(sizeof(Socket));
+            Socket* nextSock=createTcpSocket();
             hn_Socket* hnSockNext=malloc(sizeof(hn_Socket));
             hn_sockInit(hnSockNext,nextSock,SOCK_MODE_RELAY);
+            if(!nextSock->ptr){
+                printf("WARNING: hnsock did not get linked with nextSock\n");
+                printf("is allocated hnSockNext: %d, nextSock: %d\n",hnSockNext!=NULL,nextSock!=NULL);
+            }
+            else
+                printf("nextSock linked with hnSockNext successfully\n");
+            if(!hnSock||!hnSockNext||!nextSock){
+                printf("Could not malloc sockets\n");
+                return 0;
+            }
             int r=initializeConnect(connUrl,nextSock,hnSock,&(conf->bridge->context));
             if(r==1){
                 //nextSock is connected to an ip addresss
+                printf("Next sock fd: %d\n",nextSock->fd);
+                str_reset(buff);
                 str_set(buff,"CONNECTED");
+                printf("About to send connected ack: %s\n",buff);
                 hn_sendMsg(sock,buff);
+                printf("setting up relay...\n");
+                printf("nextSock -> hnSock is not NULL: %d\n",nextSock->ptr!=NULL);
                 hnSock->relay.next=nextSock;
                 hnSock->relay.isWaiting=0;
                 hnSockNext->relay.next=sock;
                 hnSockNext->relay.isWaiting=0;
+                // Add the socket to watch list
                 sock_setNonBlocking(nextSock);
                 list_add(sockList,nextSock);
+                printf("added sock to list\n");
             }
             else if(r==2){
                 // sock is waiting for a reverse connection
                 // nextSock is not being used, free it
                 // sock is already added to waiting list by initializeConnect
+                printf("Waiting for reverse connection..\n");
                 sock_destroy(nextSock,NULL);
             }
             else{
@@ -715,7 +812,7 @@ int handleNew(Socket* sock, hn_Config* conf, List* sockList){
             char listenId[20];
             str_set(listenId,id);
             if(str_len(listenId)>1&&getSaltForListenId(listenId,&conf->bridge->context)){
-                str_set(buff,"");
+                str_reset(buff);
                 Map subMap;
                 map_init(&subMap);
                 map_set(&subMap,listenId,getSaltForListenId(listenId,&conf->bridge->context),0);
@@ -736,6 +833,7 @@ int handleNew(Socket* sock, hn_Config* conf, List* sockList){
             hn_sockInit(hnSock,sock,SOCK_MODE_LISTEN);
             str_set(hnSock->listen.listenId,listenId);
             map_set(&(conf->bridge->context.listeningSocks),listenId,hnSock,0);
+            str_reset(buff);
             str_set(buff,"LISTENING ");
             str_concat(buff,listenId);
             hn_sendMsg(sock,buff);
@@ -797,32 +895,49 @@ int handleNew(Socket* sock, hn_Config* conf, List* sockList){
         //set it back to non-blocking and add to list to watch for events
         sock_setNonBlocking(sock);
         list_add(sockList,sock);
+        printf("added orginal sock to list finally\n");
         return 1;
     }
     return 0;
 }
 
 int handleRead(Socket* sock, hn_Config* conf, List* sockList){
+    printf("Handling Socket READ event fd: %d\n",sock->fd);
     hn_Socket* hnSock=(hn_Socket*)sock->ptr;
     if(!hnSock){
-        printf("[Read] Socket is not linked with any hnsock\n");
+        // Need to pull out read data or else we keep getting the same event
+        printf("[Read] Socket %d is not linked with any hnsock\n",sock->fd);
+        char buffer[600]="";
+        int bytesRead=sock_read(buffer,600,sock);
+        printf("[Read] from rougue socket: %s\n",buffer);
         return 0;
     }
+    printf("got linked HNSocket\n");
     if(hnSock->mode==SOCK_MODE_RELAY){
+        printf("Socket is in RELAY mode\n");
         if(hnSock->relay.isWaiting||!hnSock->relay.next){
             printf("[Read] Got data from waiting sock, closing it\n");
             sock_done(sock);
             // not calling hn_sockCleanup here, will be called on closed event
             return 0;
         }
-        Socket* nextSock=(Socket*)hnSock->relay.next->ptr;
+        Socket* nextSock=hnSock->relay.next;
+        printf("Got next socket\n");
+        if(!nextSock){
+            printf("[Read] Error: Next socket is not linked with any sock\n");
+        }
         //reading data from this socket and writing it to next
-        char buffer[600];
+        printf("Now relaying data...\n");
+        char buffer[600]="";
         int bytesRead=sock_read(buffer,600,sock);
+        printf("Read first relay bytes: %d\n",bytesRead);
         while(bytesRead>0&&sock->isAlive==SOCKET_ALIVE&&nextSock->isAlive==SOCKET_ALIVE){
+            printf("Relaying %d bytes..\n",bytesRead);
             sock_write(nextSock,buffer,bytesRead);
+            str_reset(buffer);
             bytesRead=sock_read(buffer,600,sock);
         }
+        printf("Relaying done\n");
         return 1;
     }
     else if(hnSock->mode==SOCK_MODE_LISTEN_OUT){
@@ -831,7 +946,7 @@ int handleRead(Socket* sock, hn_Config* conf, List* sockList){
         //read message, extract otp
         //use the otp to {initializeListenConn}
         //once connected, pass the socket to {handleNew}
-        char buff[600];
+        char buff[600]="";
         int read=hn_receiveMsg(buff,600,sock);
         if(read<=0){
             printf("Could not read from socket\n");
@@ -849,7 +964,7 @@ int handleRead(Socket* sock, hn_Config* conf, List* sockList){
             return 0;
         }
         //initialize the connection
-        Socket* connSock=malloc(sizeof(Socket));
+        Socket* connSock=createTcpSocket();
         int r=initializeListenConn(hnSock->listen.listenId,otp,conf->bridge->rlUrl,connSock);
         if(!r){
             printf("Could not initialize connection\n");
@@ -870,6 +985,7 @@ int handleRead(Socket* sock, hn_Config* conf, List* sockList){
 
 int handleClose(Socket* sock, hn_Config* conf, List* sockList){
     //we dont need to free the socket, it will be freed by the loop
+    printf("Handling Socket CLOSE event\n");
     BridgeContext* context=NULL;
     if(conf->mode==HN_MODE_BRIDGE){
         context=&(conf->bridge->context);

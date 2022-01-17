@@ -60,7 +60,7 @@ struct listenMode {
 
 struct connectMode {
         char connectUrl[MAX_URL_SIZE];
-        Socket* sock;
+        char payload[600];
 };
 
 struct queryMode {

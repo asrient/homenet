@@ -154,6 +154,7 @@ char *mapping[][4] = {
     {"name",        "-name",  "Name",       "NAME"},
     {"local-ip",    "-ip",    "Local IP",   "LOCAL_IP"},
     {"use-rl",      "-rl",    "Use RL",     "USE_RL"},
+    {"data",        "-data",  "Data",       "DATA"},
 };
 
 /*
@@ -240,6 +241,7 @@ while(i<argc){
         str_set(val,value);
         map_set(map,key,val,1);
         printf("[argsToMap] Setting %s: %s\n",key, val);
+        i++;
     }
     else{
             printf("arg not mapped: %s, val: %s\n",argv[i],argv[i+1]);
@@ -393,7 +395,7 @@ int parseArgs(hn_Config* conf,Map* args, char* file){
         conf->connect=cm;
         //now setup the connect mode struct
         getValue("url",cm->connectUrl,args);
-        cm->sock=NULL;
+        getValue("data",cm->payload,args);
     }
     else if(mode==HN_MODE_QUERY){
         printf("Setting up in query mode..\n");

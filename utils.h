@@ -50,6 +50,9 @@ int str_charCount(char* str, char c);
 void str_removeSpaces(char* str);
 
 void str_removeChars(char* str, char* cArr);
+
+void str_reset(char* str);
+
 //////////////////
 
 struct Item {
