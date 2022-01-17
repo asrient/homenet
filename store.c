@@ -159,11 +159,11 @@ char *mapping[][4] = {
 To update the config, modify the "mapping" above and modify "parseArgs" func accordingly
 */
 
-int getMappedKey(char* mappedKey, char* key, int mappingIndex){
+int getMappedKey(char** mappedKey, char* key, int mappingIndex){
     int i;
     for(i=0;i<sizeof(mapping)/sizeof(mapping[0]);i++){
         if(mapping[i][mappingIndex]&&str_isEqual(key,mapping[i][mappingIndex])){
-            mappedKey=mapping[i][0];
+            *mappedKey=mapping[i][0];
             return 1;
         }
     }
@@ -233,7 +233,7 @@ while(i<argc){
         i++;
         continue;
     }
-    if(getMappedKey(key,argv[i],1)){
+    if(getMappedKey(&key,argv[i],1)){
         value = argv[i+1];
         char* val=malloc(str_len(value)+1);
         str_set(val,value);
@@ -248,20 +248,31 @@ while(i<argc){
 return 1;
 }
 
-int configFileToMap(Map* map, char* file, char* section){
+void configFileToMap(Map* map, char* file, char* section){
     // we are dynamically allocating memory for value, remember to be free later
     char key[50];
     char value[200];
+    char* oldSection=section;
     while(readConfigFile(key,value,file,section)){
         if(file){
             file=NULL;
             section=NULL;
+            printf("[configFileToMap] setting the loop\n");
         }
+        printf("[configFileToMap] Setting on file %s: %s\n",key, value);
         char* mappedKey = NULL;
-        if(getMappedKey(mappedKey,key,2)){
+        if(oldSection){
             char* val=malloc(str_len(value)+1);
             str_set(val,value);
             map_set(map,key,val,1);
+            printf("[configFileToMap] %s KeyStore record %s: %s\n",oldSection, key, val);
+        }
+        else if(getMappedKey(&mappedKey,key,2)){
+            printf("got mapped key: %s\n",mappedKey);
+            char* val=malloc(str_len(value)+1);
+            str_set(val,value);
+            map_set(map,mappedKey,val,1);
+            printf("[configFileToMap] Mapped Setting %s: %s\n",mappedKey, val);
         }
         else{
             printf("Config file key not mapped: %s, val: %s\n",key,value);
@@ -389,6 +400,7 @@ int parseArgs(hn_Config* conf,Map* args, char* file){
         getValue("key",qm->key,args);
         getValue("salt",qm->salt,args);
     }
+    return 1;
 }
 
 int confInit(hn_Config* conf, int argc, char *argv[]){

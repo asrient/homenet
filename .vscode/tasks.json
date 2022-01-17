@@ -1,0 +1,31 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"type": "cppbuild",
+			"label": "C/C++: clang build project",
+			"command": "/usr/bin/clang",
+			"args": [
+				"utils.c",
+				"netUtils.c",
+				"store.c",
+				"homeNet.c",
+				" cli.c",
+				"sha/sha2.c",
+				"-o",
+				"homenet"
+			],
+			"options": {
+				"cwd": "${fileDirname}"
+			},
+			"problemMatcher": [
+				"$gcc"
+			],
+			"group": {
+				"kind": "build",
+				"isDefault": true
+			},
+			"detail": "compiler: /usr/bin/clang"
+		}
+	]
+}

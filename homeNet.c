@@ -780,6 +780,7 @@ int handleNew(Socket* sock, hn_Config* conf, List* sockList){
         list_add(sockList,sock);
         return 1;
     }
+    return 0;
 }
 
 int handleRead(Socket* sock, hn_Config* conf, List* sockList){
@@ -845,6 +846,7 @@ int handleRead(Socket* sock, hn_Config* conf, List* sockList){
     else if(hnSock->mode==SOCK_MODE_MDNS){
         // handle the mdns socket, will only be used in bridge mode
     }
+    return 0;
 }
 
 int handleClose(Socket* sock, hn_Config* conf, List* sockList){

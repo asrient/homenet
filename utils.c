@@ -469,13 +469,14 @@ int readConfigFile(char* key, char* value, char* filePath, char* section){
     static char* sec;
     if(filePath||!fp){
         fp = fopen(filePath, "r");
-        printf("Reading config file: %s\n",filePath);
+        printf("[readConfigFile] Reading config file: %s\n",filePath);
     }
     if(!fp){
-        printf("Config file not found: %s\n",filePath);
+        printf("[readConfigFile] Config file not found: %s\n",filePath);
         return 0;
     }
     if(section){
+        printf("[readConfigFile] Reading section: %s\n",section);
         sec=section;
         rewind(fp);
     }
@@ -514,7 +515,7 @@ int readConfigFile(char* key, char* value, char* filePath, char* section){
         str_strip(value);
         }
         else{
-            printf("Error: line [%s] is not in format key=value\n", line);
+            printf("[readConfigFile] Error: line [%s] is not in format key=value\n", line);
             recall=1;
         }
         }
@@ -525,7 +526,7 @@ int readConfigFile(char* key, char* value, char* filePath, char* section){
         fp=NULL;
     }
     if(recall){
-        return readConfigFile(key,value,filePath,section);
+        return readConfigFile(key,value,NULL,NULL);
     }
     return read>0;
 }
