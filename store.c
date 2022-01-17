@@ -153,6 +153,7 @@ char *mapping[][4] = {
     {"port",        "-p",     "Port",       "PORT"},
     {"name",        "-name",  "Name",       "NAME"},
     {"local-ip",    "-ip",    "Local IP",   "LOCAL_IP"},
+    {"use-rl",      "-rl",    "Use RL",     "USE_RL"},
 };
 
 /*
@@ -353,6 +354,12 @@ int parseArgs(hn_Config* conf,Map* args, char* file){
         getValue("url",bm->rlUrl,args);
         getValue("salt",bm->rlPass,args);
         getValue("master-key",bm->context.masterKey,args);
+        int useRL=1;
+        getValueBool("use-rl",&useRL,args);
+        if(useRL==0){
+            printf("[parseArgs] Not using RL\n");
+            str_set(bm->rlUrl,"");
+        }
     }
     else if(mode==HN_MODE_LISTEN){
         printf("Setting up in listen mode..\n");

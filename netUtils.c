@@ -554,8 +554,9 @@ Socket* sock=(Socket*) list_forEach(list);
 
 int dns_getIpAddr(struct sockaddr* ip, char* str){
     struct hostent* h;
-    if((h=gethostbyname(str)) == NULL) { 
-    printf("Unknown host\n");
+    h=gethostbyname(str);
+    if(h == NULL) { 
+    printf("Unknown host %s\n", str);
     return 0;
     }
     ipAddr_init(ip,AF_INET,NULL,80);

@@ -367,25 +367,34 @@ char password[10]="";
 if(pStartInd>0){
     str_substring(password,first,pStartInd+1,-1);
     str_substring(connId,first,0,pStartInd-1);
+    printf("Password found in url %s\n",password);
 }
 else{
+    printf("Password is not a part of url %s\n",first);
     str_set(connId,first);
 }
-printf("[DEBUG] first: %s, password: %s\n",first,password);
+printf("[DEBUG] connId: %s, password: %s\n",connId,password);
 // Connect to the first part of the url
 // This can be either ip address, a domain name, listenId set in mdns recs or a reverse listenId
 // Skip this if already connected, we are resuming it
 struct sockaddr_in ipAddr;
+bzero(&ipAddr,sizeof(struct sockaddr_in));
 struct sockaddr_in* ip=&ipAddr;
 int connToIp=0;
     // First try connecting as ip address, if fails try domain name
-    connToIp=str_toIpAddr((struct sockaddr*)ip, first);
-if(!connToIp&&isDomainName(first)){
-    connToIp=dns_getIpAddr((struct sockaddr*)ip, first);
+    connToIp=str_toIpAddr((struct sockaddr*)ip, connId);
+    if(connToIp)
+    printf("connId is in IP address format %s\n",connId);
+    else
+    printf("connId is not an Ip \n");
+if(!connToIp&&isDomainName(connId)){
+    printf("connId is in domain name format %s\n",connId);
+    connToIp=dns_getIpAddr((struct sockaddr*)ip, connId);
    } 
    // We consider connId to be a listenId
    // Try getting ip linked to listenId from mdns store
     if(!connToIp&&context){
+        printf("trying to get ip from mdns store\n");
         ip=getIpAddrForId(connId,context);
         if(ip)
             connToIp=1;
@@ -397,15 +406,18 @@ if(!connToIp&&isDomainName(first)){
 if(context&&waitingHnSock&&!connToIp){
     // send an otp to the listener sock and add the hnsock to the waiting list
     // we consider waitingHnSock as already inited and connected and waiting for rl for relay
+    printf("Trying to get a listner linked to connId %s\n",connId);
     char otp[10];
     generateCode(otp,8);
     //check if listener exists
     hn_Socket* listener=getListeningSock(connId, context);
     if(listener){
         //Now send otp and ask them to create new listen-conn socket
+        printf("Sending otp %s to listener %s\n",otp,connId);
         char buff[600]="LISTEN_OTP ";
         str_concat(buff,otp);
         hn_sendMsg(listener->sock,buff);
+        printf("adding hnSock to waiting list\n");
         str_set(waitingHnSock->relay.listenId,connId);
         str_set(waitingHnSock->relay.otp,otp);
         waitingHnSock->relay.isWaiting=1;
@@ -413,9 +425,16 @@ if(context&&waitingHnSock&&!connToIp){
         return 2;
     }
 }
-if(connToIp)
-if(!createTcpConnection(sock,(struct sockaddr*)ip)){
-    printf("Could not create socket\n");
+if(connToIp){
+    printf("Connecting to ip: ");
+    ipAddr_print((struct sockaddr*)ip);
+    if(!createTcpConnection(sock,(struct sockaddr*)ip)){
+        printf("Could not create socket\n");
+        return 0;
+    }
+}
+else{
+    printf("Could not get any ip address for %s\n",connId);
     return 0;
 } 
 sock_setTimeout(sock,SOCK_TIMEOUT_SECS);
