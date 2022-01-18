@@ -85,20 +85,22 @@ int generateUUID(char *uuid) {
 
 void textInput(char* buff, int max) {
     // Scan text input for console with support for newline
-    // 2 consequtive newlines will exit
-    unsigned ConsecutiveEnterCount = 0;
-    for (;;) {
-    if (fgets(buff, max, stdin) == NULL) {
-        break;  // handle error or EOF
-    }
+    // Ctrl-X to exit
+    printf("(Ctrl-X + Enter to Exit)\n");
+    printf("> ");
+    int read=0;
+    buff[0]=getchar();
+    while(buff[0]!=EOF&&read<max){
     if (buff[0] == '\n') {
-        ConsecutiveEnterCount++;
-        if (ConsecutiveEnterCount >= 1) {
-        break;
-        }
+        printf("> ");
     }
-    else ConsecutiveEnterCount = 0;
-    buff+=strlen(buff);
+    if (buff[0] == '\x18' || buff[0] == '\x1b') {
+        buff[0] = '\0';
+        break;
+    }
+    read++;
+    buff++;
+    buff[0]=getchar();
     }
 }
 
@@ -126,34 +128,36 @@ int generateAuthResp(char* buff, char* nonce, char* key, char* salt){
 // Will generate a string of the form:
 // "key {hash(nonce|key|salt)}"
 // password is in format key:salt
-char raw[513];
+char raw[513]="";
 if(str_len(key)==0){
     key=NULL;
 }
+str_reset(buff,BUFF_SIZE);
 if(key){
     str_set(buff,key);
     str_concat(buff," ");
 }
-else
-str_reset(buff);
-str_reset(buff);
 str_set(raw,nonce);
 str_concat(raw,"|");
 if(key)
 str_concat(raw,key);
 str_concat(raw,"|");
 str_concat(raw,salt);
+printf("about to hash: %s\n",raw);
 SHA512_CTX	ctx512;
 SHA512_Init(&ctx512);
 SHA512_Update(&ctx512, (unsigned char*)raw, str_len(raw));
 SHA512_End(&ctx512, raw);
+printf("hash: %s\n",raw);
 str_concat(buff,raw);
+printf("auth resp: %s\n",buff);
 return 1;
 }
 
 int verifyAuthRespFromMap(char* buff, char* nonce, Map* keyStore){
 // Checks if the received auth string is valid
 // Format of received string: "key {hash(nonce|key|salt)}"
+printf("Verifying Auth Response\n");
 char str[str_len(buff)+1];
 str_set(str,buff);
 char* key;
@@ -170,15 +174,17 @@ if(!salt){
     printf("Key %s not found in keystore\n",key);
     return 0;
 }
-char answer[600];
+char answer[BUFF_SIZE];
 if(!generateAuthResp(answer,nonce,key,salt)){
     printf("Error generating auth response\n");
     return 0;
 }
-if(!str_isEqual(answer,hash)){
+if(!str_isEqual(answer,buff)){
     printf("Auth response does not match\n");
+    printf("Correct: [%s]\n Received: [%s]\n",buff,answer);
     return 0;
 }
+printf("Auth response verified\n");
 return 1;
 }
 
@@ -197,10 +203,12 @@ int generateAuthChallenge(char* out, char* nonceOut){
 // Will generate a string of the form:
 // "AUTH {nonce}"
 str_set(out,"AUTH ");
-char nonce[15]="";
+char nonce[16]="";
 generateCode(nonce,15);
+printf("Generated nonce: %s\n",nonce);
 str_concat(out,nonce); //Fix: change it to a proper random that depends on the current timestamp
 if(nonceOut){
+    printf("setting nonceOut to %s\n",nonce);
 str_set(nonceOut,nonce);
 }
 return 1;
@@ -226,7 +234,7 @@ return sock_write(sock,buff,str_len(buff));
 }
 
 int hn_receiveMsg(char* buff, int max, Socket* sock){
-str_reset(buff);
+str_reset(buff,BUFF_SIZE);
 int totalRead=0;
 while (!str_endswith(buff,HN_MSG_END)&&totalRead<max){
     int read=sock_read(buff+totalRead,max-totalRead,sock);
@@ -325,30 +333,36 @@ Socket* createTcpSocket(){
 
 int authThrowChallenge(char* buff, Socket* sock, Map* keyStore){
 // Will send a challenge and wait for a response
-str_reset(buff);
-char nonce[15]="";
+str_reset(buff,BUFF_SIZE);
+char nonce[20]="";
+printf("generating challenge\n");
 generateAuthChallenge(buff,nonce);
+printf("generated challenge: %s\n",buff);
 int r=hn_sendMsg(sock,buff);
 if(r<=0){
     printf("Error sending challenge\n");
     return 0;
 }
-str_reset(buff);
-r=hn_receiveMsg(buff,600,sock);
+str_reset(buff,BUFF_SIZE);
+r=hn_receiveMsg(buff,BUFF_SIZE,sock);
+printf("received challenge resp: %s\n",buff);
 if(r<=0){
     printf("Error receiving challenge response\n");
     return 0;
 }
 r=verifyAuthRespFromMap(buff,nonce,keyStore);
+printf("authThrowChallenge completed with result: %d\n",r);
 return r;
 }
 
 int authSolve(char* buff,Socket* sock, char* key, char* salt, char* password){
 // Will check if it throws a challenge and if it does, will solve it
 //if not the next read message will be passed to buff
+printf("solving challenge %s\n",buff);
 if(!str_startswith(buff,"AUTH ")){
-    str_reset(buff);
-    int read=hn_receiveMsg(buff,600,sock);
+    printf("Challenge not found in buff, reading from sock..\n");
+    str_reset(buff,BUFF_SIZE);
+    int read=hn_receiveMsg(buff,BUFF_SIZE,sock);
     if(read<=0){
         printf("Could not read from socket\n");
         return 0;
@@ -360,19 +374,22 @@ if(!str_startswith(buff,"AUTH ")){
 }
         char nonce[200]="";
         str_substring(nonce,buff,5,-1);
+        printf("extracted nonce: %s\n",nonce);
         // Calculate the password hash
-        str_reset(buff);
+        str_reset(buff,BUFF_SIZE);
         if(password)
         generateAuthRespFromPassword(buff,nonce,password);
         else
         generateAuthResp(buff,nonce,key,salt);
+        printf("generated auth resp: %s\n",buff);
         int write=hn_sendMsg(sock,buff);
         if(write<=0){
             printf("Could not write to socket\n");
             return 0;
         }
-        str_reset(buff);
-        int read=hn_receiveMsg(buff,600,sock);
+        str_reset(buff,BUFF_SIZE);
+        printf("reading next message\n");
+        int read=hn_receiveMsg(buff,BUFF_SIZE,sock);
         if(read<=0){
             printf("Could not read from socket\n");
             return 0;
@@ -453,7 +470,7 @@ if(context&&waitingHnSock&&!connToIp){
     if(listener){
         //Now send otp and ask them to create new listen-conn socket
         printf("Sending otp %s to listener %s\n",otp,connId);
-        char buff[600]="LISTEN_OTP ";
+        char buff[BUFF_SIZE]="LISTEN_OTP ";
         str_concat(buff,otp);
         hn_sendMsg(listener->sock,buff);
         printf("adding hnSock to waiting list\n");
@@ -509,11 +526,11 @@ do{
     }
     printf("[DEBUG] loop connId: %s, password: %s\n",connId,password);
     // Now ask the peer to connect to the next url part
-    char buff[600]="HN1.0/CONNECT ";
+    char buff[BUFF_SIZE]="HN1.0/CONNECT ";
     str_concat(buff,connId);
     hn_sendMsg(sock,buff);
     //read
-    str_reset(buff);
+    str_reset(buff,BUFF_SIZE);
     int r=authSolve(buff,sock,NULL,NULL,password);
     if(r<=0){
         printf("Could not read from socket\n");
@@ -546,14 +563,14 @@ int initializeListenNotify(char* listenId, char* salt, char* url, Socket* sock){
     }
     else{
         printf("Connected to url: %s\n",url);
-        char buff[600]="HN1.0/LISTEN_NOTIFY";
+        char buff[BUFF_SIZE]="HN1.0/LISTEN_NOTIFY";
         if(listenId){
             str_concat(buff," ");
             str_concat(buff,listenId); 
         }
         hn_sendMsg(sock,buff);
-        str_reset(buff);
-    int read=authSolve(buff,sock,NULL,listenId,salt);
+        str_reset(buff,BUFF_SIZE);
+    int read=authSolve(buff,sock,listenId,salt,NULL);
     if(read<=0){
         printf("Could not read from socket\n");
         return 0;
@@ -574,6 +591,7 @@ int initializeListenNotify(char* listenId, char* salt, char* url, Socket* sock){
             str_set(hnSock->listen.salt,salt);
             hnSock->mode=SOCK_MODE_LISTEN_OUT;
         }
+        printf("Listening to server with listner ID: %s\n",id);
         return 1;
     }
     else{
@@ -592,13 +610,13 @@ int initializeListenConn(char* listenId, char* otp, char* url, Socket* sock){
     }
     else{
         printf("Connected to url: %s\n",url);
-        char buff[600]="HN1.0/LISTEN_CONNECT ";
+        char buff[BUFF_SIZE]="HN1.0/LISTEN_CONNECT ";
         str_concat(buff,listenId); 
         str_concat(buff," ");
         str_concat(buff,otp);
         hn_sendMsg(sock,buff);
-        str_reset(buff);
-    int read=hn_receiveMsg(buff,600,sock);
+        str_reset(buff,BUFF_SIZE);
+    int read=hn_receiveMsg(buff,BUFF_SIZE,sock);
     if(read<=0){
         printf("Could not read from socket\n");
         return 0;
@@ -671,24 +689,19 @@ int start_connect(hn_Config *conf){
         char* buff=conf->connect->payload;
         if(str_len(buff)<=0){
             // take input from cli
-            printf("--------------------------------\n");
             printf("Enter Request Data: \n");
-            textInput(buff,600);
-            printf("--------------------------------\n");
+            textInput(buff,BUFF_SIZE);
         }
-        else{
-            sleep(1);
-            printf("Sending payload: %s\n",buff);
-        }
+        str_unEscape(buff);
         printf("Sending request..\n");
         int write=sock_write(sock,buff,str_len(buff));
         printf("Sent %d bytes.\n",write);
-        str_reset(buff);
-        int read=sock_read(buff,600,sock);
+        str_reset(buff,BUFF_SIZE);
+        int read=sock_read(buff,BUFF_SIZE,sock);
         while(read>0){
             printf("%s",buff);
-            str_reset(buff);
-            read=sock_read(buff,600,sock);
+            str_reset(buff,BUFF_SIZE);
+            read=sock_read(buff,BUFF_SIZE,sock);
         }
         sock_destroy(sock, NULL);
         return 1;
@@ -745,8 +758,8 @@ int handleNew(Socket* sock, hn_Config* conf, List* sockList){
         //intialize the socket to make it blocking again, it is set to non-blocking by the loop
         sock_setBlocking(sock);
         sock_setTimeout(sock,SOCK_TIMEOUT_SECS);
-        char buff[600]="";
-        int read=hn_receiveMsg(buff,600,sock);
+        char buff[BUFF_SIZE]="";
+        int read=hn_receiveMsg(buff,BUFF_SIZE,sock);
         if(str_startswith(buff,"HN1.0/CONNECT ")){
             char *saveptr;
             char* txt = strtok_r(buff, " ", &saveptr);
@@ -775,7 +788,7 @@ int handleNew(Socket* sock, hn_Config* conf, List* sockList){
             if(r==1){
                 //nextSock is connected to an ip addresss
                 printf("Next sock fd: %d\n",nextSock->fd);
-                str_reset(buff);
+                str_reset(buff,BUFF_SIZE);
                 str_set(buff,"CONNECTED");
                 printf("About to send connected ack: %s\n",buff);
                 hn_sendMsg(sock,buff);
@@ -816,12 +829,16 @@ int handleNew(Socket* sock, hn_Config* conf, List* sockList){
             char* id = strtok_r(NULL, " ", &saveptr);
             char listenId[20];
             str_set(listenId,id);
+            printf("requested listenId: %s\n",listenId);
             if(str_len(listenId)>1&&getSaltForListenId(listenId,&conf->bridge->context)){
-                str_reset(buff);
+                str_reset(buff,BUFF_SIZE);
+                printf("got salt now authenticating\n");
                 Map subMap;
                 map_init(&subMap);
                 map_set(&subMap,listenId,getSaltForListenId(listenId,&conf->bridge->context),0);
+                printf("about to throw challenge to: %s\n",listenId);
                 int r=authThrowChallenge(buff,sock,&subMap);
+                printf("auth completed %d\n",r);
                 map_cleanup(&subMap,0);
                 if(!r){
                     printf("Could not authenticate listener\n");
@@ -838,10 +855,11 @@ int handleNew(Socket* sock, hn_Config* conf, List* sockList){
             hn_sockInit(hnSock,sock,SOCK_MODE_LISTEN);
             str_set(hnSock->listen.listenId,listenId);
             map_set(&(conf->bridge->context.listeningSocks),listenId,hnSock,0);
-            str_reset(buff);
+            str_reset(buff,BUFF_SIZE);
             str_set(buff,"LISTENING ");
             str_concat(buff,listenId);
             hn_sendMsg(sock,buff);
+            printf("\nNEW LISTENER with Id: %s\n",listenId);
         }
         else if(str_startswith(buff,"HN1.0/LISTEN_CONNECT ")){
             // extract listenId and otp
@@ -853,29 +871,38 @@ int handleNew(Socket* sock, hn_Config* conf, List* sockList){
             char* txt = strtok_r(buff, " ", &saveptr);
             char* listenId = strtok_r(NULL, " ", &saveptr);
             char* otp = strtok_r(NULL, " ", &saveptr);
+            printf("listenId: %s otp: %s\n",listenId,otp);
             if(listenId&&otp){
                 //get corresponding waiting socket
                 hn_Socket* nextHnsock=NULL;
-                int r=getWaitingSocket(nextHnsock,&conf->bridge->context,listenId, otp);
-                if(!r){
+                printf("getting corresponding waiting socket\n");
+                nextHnsock=getWaitingSocket(&conf->bridge->context,listenId, otp);
+                printf("got waiting socket: %d\n",nextHnsock!=NULL);
+                if(!nextHnsock){
                 printf("Could not get waiting sock for req: %s\n",buff);
                 sock_destroy(sock,NULL);
                 return 0;
                 }
+                printf("removing waiting socket from map\n");
                 //Remove sock from waiting list
                 removeWaitingSocket(&conf->bridge->context,listenId, otp);
                 //create a hnsock for the socket
                 hn_Socket* hnSock=malloc(sizeof(hn_Socket));
                 hn_sockInit(hnSock,sock,SOCK_MODE_RELAY);
+                printf("created hnSock for sock\n");
+                printf("nextHnsock->sock is null: %d\n",nextHnsock->sock==NULL);
                 // setup relay
                 hnSock->relay.next=nextHnsock->sock;
                 hnSock->relay.isWaiting=0;
                 nextHnsock->relay.next=sock;
                 nextHnsock->relay.isWaiting=0;
                 // sending connect ack to both sockets
+                printf("relay is set up, sending ack\n");
+                str_reset(buff,BUFF_SIZE);
                 str_set(buff,"CONNECTED");
                 hn_sendMsg(sock,buff);
                 hn_sendMsg(nextHnsock->sock,buff);
+                printf("sending ack done\n");
             }
             else{
                 printf("Could not extract listenId and otp %s\n",buff);
@@ -912,8 +939,8 @@ int handleRead(Socket* sock, hn_Config* conf, List* sockList){
     if(!hnSock){
         // Need to pull out read data or else we keep getting the same event
         printf("[Read] Socket %d is not linked with any hnsock\n",sock->fd);
-        char buffer[600]="";
-        int bytesRead=sock_read(buffer,600,sock);
+        char buffer[BUFF_SIZE]="";
+        int bytesRead=sock_read(buffer,BUFF_SIZE,sock);
         printf("[Read] from rougue socket: %s\n",buffer);
         return 0;
     }
@@ -933,14 +960,14 @@ int handleRead(Socket* sock, hn_Config* conf, List* sockList){
         }
         //reading data from this socket and writing it to next
         printf("Now relaying data...\n");
-        char buffer[600]="";
-        int bytesRead=sock_read(buffer,600,sock);
+        char buffer[BUFF_SIZE]="";
+        int bytesRead=sock_read(buffer,BUFF_SIZE,sock);
         printf("Read first relay bytes: %d\n",bytesRead);
         while(bytesRead>0&&sock->isAlive==SOCKET_ALIVE&&nextSock->isAlive==SOCKET_ALIVE){
             printf("Relaying %d bytes..\n",bytesRead);
             sock_write(nextSock,buffer,bytesRead);
-            str_reset(buffer);
-            bytesRead=sock_read(buffer,600,sock);
+            str_reset(buffer,BUFF_SIZE);
+            bytesRead=sock_read(buffer,BUFF_SIZE,sock);
         }
         printf("Relaying done\n");
         return 1;
@@ -951,8 +978,8 @@ int handleRead(Socket* sock, hn_Config* conf, List* sockList){
         //read message, extract otp
         //use the otp to {initializeListenConn}
         //once connected, pass the socket to {handleNew}
-        char buff[600]="";
-        int read=hn_receiveMsg(buff,600,sock);
+        char buff[BUFF_SIZE]="";
+        int read=hn_receiveMsg(buff,BUFF_SIZE,sock);
         if(read<=0){
             printf("Could not read from socket\n");
             return 0;

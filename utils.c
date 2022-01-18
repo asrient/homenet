@@ -138,8 +138,11 @@ char* str_strip(char* str){
   return str;
 }
 
-void str_reset(char* str){
-    bzero(str,str_len(str));
+void str_reset(char* str, int size){
+    if(size<=0){
+        size=str_len(str);
+    }
+    bzero(str,size);
 }
 
 char* str_concat(char* str, char* str2){
@@ -196,6 +199,41 @@ void str_removeChars(char* str, char* cArr){
 
 void str_removeSpaces(char* str){
     str_removeChars(str, " ");
+}
+
+void str_removeLast(char* str, int n){
+    int len=str_len(str);
+    for(int i=0;i<n;i++){
+        str[len-n+i]='\0';
+    }
+}
+
+char* escapeChars[7][2]={
+{"\\n","\n"},
+{"\\t","\t"},
+{"\\r","\r"},
+{"\\b","\b"},
+{"\\f","\f"},
+{"\\a","\a"},
+{"\\v","\v"}
+};
+
+void str_unEscape(char* str){
+    int i=0;
+    int shift=0;
+    while(str[i]!='\0'){
+        str[i-shift]=str[i];
+        for(int j=0;j<7;j++){
+            if(str_compare(2,str,i,escapeChars[j][0],0)){
+                str[i-shift]=escapeChars[j][1][0];
+                shift++;
+                i++;
+                break;
+            }
+        }
+        i++; 
+    }
+    str[i-shift]='\0';
 }
 
 ////////////////////

@@ -24,6 +24,7 @@ struct sockaddr_in* getIpAddrForId(char* id,BridgeContext* context){
 }
 
 char* getSaltForListenId(char* id, BridgeContext* context){
+    printf("getting salt for %s\n",id);
     char* salt=map_get(&(context->listenKeys),id);
     if(!salt){
         // format: l-id
@@ -32,22 +33,23 @@ char* getSaltForListenId(char* id, BridgeContext* context){
         str_concat(tstr,id);
         salt=getEnv(tstr);
     }
+    printf("found salt for %s : %s\n",id,salt);
     return salt;
 }
 
 //////////////////////////////////////////////////////////////////////
 
-int getWaitingSocket(hn_Socket *sock,BridgeContext* context,char* listenId, char* otp){
+hn_Socket* getWaitingSocket(BridgeContext* context,char* listenId, char* otp){
     hn_Socket *listenSock=getListeningSock(listenId,context);
     if(!listenSock){
+        printf("Could not find listening socket for %s\n",listenId);
         return 0;
     }
     if(listenSock->mode!=SOCK_MODE_LISTEN){
         printf("Socket is not in listen mode\n");
         return 0;
     }
-    sock=map_get(&(listenSock->listen.waitingSocks),otp);
-    return sock!=NULL;
+    return map_get(&(listenSock->listen.waitingSocks),otp);
 }
 
 int removeWaitingSocket(BridgeContext* context,char* listenId, char* otp){

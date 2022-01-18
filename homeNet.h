@@ -10,6 +10,8 @@
 
 #define HN_MSG_END "\r\n"
 
+#define BUFF_SIZE 600
+
 // Fix: Change this acc to platforms
 #define CONFIG_PATH "conf.ini"
 
@@ -60,7 +62,7 @@ struct listenMode {
 
 struct connectMode {
         char connectUrl[MAX_URL_SIZE];
-        char payload[600];
+        char payload[BUFF_SIZE];
 };
 
 struct queryMode {
@@ -123,7 +125,7 @@ int confInit(hn_Config* conf, int argc, char *argv[]);
 char* getQuerySalt(char* id, BridgeContext* context);
 int addWaitingSock(char* listenId, char* otp, hn_Socket* sock, BridgeContext* context);
 int removeWaitingSocket(BridgeContext* context,char* listenId, char* otp);
-int getWaitingSocket(hn_Socket *sock,BridgeContext* context,char* listenId, char* otp);
+hn_Socket* getWaitingSocket(BridgeContext* context,char* listenId, char* otp);
 char* getSaltForListenId(char* id, BridgeContext* context);
 struct sockaddr_in* getIpAddrForId(char* id,BridgeContext* context);
 hn_Socket* getListeningSock(char* id, BridgeContext* context);

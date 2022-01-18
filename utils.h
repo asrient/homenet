@@ -51,7 +51,11 @@ void str_removeSpaces(char* str);
 
 void str_removeChars(char* str, char* cArr);
 
-void str_reset(char* str);
+void str_reset(char* str, int size);
+
+void str_removeLast(char* str, int n);
+
+void str_unEscape(char* str);
 
 //////////////////
 

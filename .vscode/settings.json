@@ -36,5 +36,10 @@
         "__node_handle": "c",
         "uuid.h": "c",
         "netutils.h": "c"
-    }
+    },
+    "workbench.colorTheme": "Monokai Dimmed",
+	"workbench.preferredDarkColorTheme": "Monokai Dimmed",
+    "editor.bracketPairColorization.enabled": true,
+    "C_Cpp.default.intelliSenseMode": "macos-clang-x86",
+    "editor.semanticHighlighting.enabled": true
 }
