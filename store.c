@@ -376,7 +376,6 @@ int parseArgs(hn_Config* conf,Map* args, char* file){
         bzero(rlm,sizeof(struct RLMode));
         conf->rl=rlm;
         //now setup the reverse listen mode struct
-        conf->listen->port=0;
         getValue("url",rlm->rlUrl,args);
         getValue("key",rlm->rlId,args);
         getValue("salt",rlm->rlPass,args);

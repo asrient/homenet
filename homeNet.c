@@ -111,7 +111,7 @@ void textInput(char* buff, int max) {
 
 int generateAuthRespFromPassword(char* out, char* nonce, char* password){
 // password is in format key:salt or salt
-    char pcpy[str_len(password)+1];
+    char pcpy[str_len(password)+5];
     str_set(pcpy,password);
     char* key;
     char* salt;
@@ -664,6 +664,7 @@ if(str_len(conf->bridge->rlUrl)){
 }
 //TODO: setup mdns socket too
 hn_loop(&sockList,conf);
+return 1;
 }
 
 int start_connect(hn_Config *conf){
@@ -737,7 +738,25 @@ int start_listen(hn_Config *conf){
 }
 
 int start_reverseListen(hn_Config *conf){
-    //
+    // setup a remote listner and fire up the event loop
+    List sockList;
+    list_init(&sockList);
+    if(!str_len(conf->rl->rlUrl)&&!str_len(conf->rl->localIp)){
+        printf("[start_reverseListen] No url set to connect to\n");
+        return 0;
+    }
+    // start a listener to this url
+    Socket* rlSock=createTcpSocket();
+    hn_Socket* rlHnSock=malloc(sizeof(hn_Socket));
+    hn_sockInit(rlHnSock,rlSock,SOCK_MODE_LISTEN_OUT);
+    if(!initializeListenNotify(conf->rl->rlId,conf->rl->rlPass,conf->rl->rlUrl,rlSock)){
+        printf("Could not initialize remote listener\n");
+        return 0;
+    }
+    sock_setNonBlocking(rlSock);
+    list_add(&sockList,rlSock);
+    hn_loop(&sockList,conf);
+    return 1;
 }
 
 int start_query(hn_Config *conf){
@@ -1016,11 +1035,17 @@ int handleRead(Socket* sock, hn_Config* conf, List* sockList){
     }
     else if(hnSock->mode==SOCK_MODE_LISTEN_OUT){
         printf("Socket is in LISTEN_OUT mode\n");
-        if(conf->mode==HN_MODE_BRIDGE){
         //must be an event for notifying new available connection
         //read message, extract otp
         //use the otp to {initializeListenConn}
-        //once connected, pass the socket to {handleNew}
+        // get rlUrl
+        char* rlUrl=NULL;
+        if(conf->mode==HN_MODE_BRIDGE){
+            rlUrl=conf->bridge->rlUrl;
+        }
+        else if(conf->mode==HN_MODE_REVERSE_LISTEN){
+            rlUrl=conf->rl->rlUrl;
+        }
         char buff[BUFF_SIZE]="";
         int read=hn_receiveMsg(buff,BUFF_SIZE,sock);
         if(read<=0){
@@ -1041,16 +1066,35 @@ int handleRead(Socket* sock, hn_Config* conf, List* sockList){
         printf("Receivied an OTP for remote new connection: %s\n",otp);
         //initialize the connection
         Socket* connSock=createTcpSocket();
-        int r=initializeListenConn(hnSock->listen.listenId,otp,conf->bridge->rlUrl,connSock);
+        int r=initializeListenConn(hnSock->listen.listenId,otp,rlUrl,connSock);
         if(!r){
             printf("Could not initialize connection\n");
-            free(connSock);
+            sock_destroy(connSock,NULL);
             return 0;
         }
+        if(conf->mode==HN_MODE_BRIDGE){
+        //once connected, pass the socket to {handleNew}
+        //the socket will be added to watchlist by {handleNew} itself
         return handleNew(connSock,conf,sockList);
         }
         else if(conf->mode==HN_MODE_REVERSE_LISTEN){
-            //Connect accourding to the local ip in config
+            //Create a new sock, connect according to the local ip in config
+            //setup relay
+            Socket* nextSock=NULL;
+            int r=createRelay(&nextSock,connSock,conf->rl->localIp,NULL);
+            if(r!=1||!nextSock){
+                printf("Could not setup relay\n");
+                sock_destroy(connSock,NULL);
+                return 0;
+            }
+            else{
+                // Add the sockets to watch list
+                sock_setNonBlocking(nextSock);
+                list_add(sockList,nextSock);  
+                sock_setNonBlocking(connSock);
+                list_add(sockList,connSock);  
+                return 1;
+            }
         }
     }
     else if(hnSock->mode==SOCK_MODE_MDNS){
