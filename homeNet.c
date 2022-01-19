@@ -52,6 +52,7 @@ void hn_sockInit(hn_Socket* hnSock, Socket* sock, int mode);
 void hn_sockCleanup(hn_Socket* hnSock, BridgeContext* context);
 void sock_readDump(Socket* sock);
 Socket* createTcpSocket();
+int createRelay(Socket** sockNext, Socket* sock, char* connUrl, BridgeContext* context);
 
 /*****************************************************************************/
 
@@ -706,7 +707,33 @@ int start_connect(hn_Config *conf){
 }
 
 int start_listen(hn_Config *conf){
-    //
+    // make sure connUrl is set
+    // make sure port is not negative
+    struct listenMode* lm=conf->listen;
+    if(str_len(lm->connectUrl)<1){
+        printf("[start_listen] No url to connect to\n");
+        return 0;
+    }
+    if(lm->port<0){
+        printf("setting a random port\n");
+        lm->port=0;
+    }
+    //init the watch list
+    List sockList;
+    list_init(&sockList);
+    // start a local server
+    Socket* servSock=malloc(sizeof(Socket));
+    if(!createTcpServer(servSock,lm->port)){
+        printf("Could not create server socket\n");
+        return 0;
+    }
+    sock_setNonBlocking(servSock);
+    printf("[Server started] listening at: ");
+    ipAddr_print(&(servSock->ipAddr));
+    list_add(&sockList,servSock);
+    // Now start the event loop
+    hn_loop(&sockList,conf);
+    return 1;
 }
 
 int start_reverseListen(hn_Config *conf){
@@ -739,12 +766,70 @@ return 0;
 ///////////////////////////////////////////////////////////////////////////////////
 
 
+int createRelay(Socket** sockNext, Socket* sock, char* connUrl, BridgeContext* context){
+    // setup hnsock for sock1
+    // create sock2 and init its hnsock
+    // connect sock2 to connUrl 
+    // setup relay links
+    *sockNext=NULL;
+    hn_Socket* hnSock=malloc(sizeof(hn_Socket));
+    hn_sockInit(hnSock,sock,SOCK_MODE_RELAY);
+    Socket* nextSock=createTcpSocket();
+    hn_Socket* hnSockNext=malloc(sizeof(hn_Socket));
+    hn_sockInit(hnSockNext,nextSock,SOCK_MODE_RELAY);
+    if(!nextSock->ptr){
+        printf("WARNING: hnsock did not get linked with nextSock\n");
+        printf("is allocated hnSockNext: %d, nextSock: %d\n",hnSockNext!=NULL,nextSock!=NULL);
+    }
+    if(!hnSock||!hnSockNext||!nextSock){
+        printf("Could not malloc sockets\n");
+        return 0;
+    }
+    int r=initializeConnect(connUrl,nextSock,hnSock,context);
+    if(r==1){
+        //nextSock is connected to an ip addresss
+        printf("setting up relay...\n");
+        hnSock->relay.next=nextSock;
+        hnSock->relay.isWaiting=0;
+        hnSockNext->relay.next=sock;
+        hnSockNext->relay.isWaiting=0;
+        *sockNext=nextSock;
+        return 1;
+    }
+    else if(r==2){
+        // sock is waiting for a reverse connection
+        // nextSock is not being used, free it
+        // sock is already added to waiting list by initializeConnect
+        printf("Waiting for reverse connection..\n");
+        sock_destroy(nextSock,NULL);
+        return 2;
+    }
+    else{
+        printf("Could not connect to url: %s\n",connUrl);
+        sock_destroy(nextSock,NULL);
+        return 0;
+    }
+}
+
 int handleNew(Socket* sock, hn_Config* conf, List* sockList){
     //the sock is not added to the list yet, its safe to free it if not required
     //Add the sock to the list if you want to keep getting events from it
     printf("Handling Socket NEW event, fd: %d\n",sock->fd);
     if(conf->mode==HN_MODE_LISTEN){
-         //Connect accourding to the url in config
+         // Create a new socket and connect it accourding to the url in config
+         // setup the relay links
+        Socket* nextSock=NULL;
+        int r=createRelay(&nextSock,sock,conf->listen->connectUrl,NULL);
+        if(r!=1||!nextSock){
+            printf("Could not setup relay\n");
+            sock_destroy(sock,NULL);
+            return 0;
+        }
+        else{
+            // Add the next socket to watch list
+            sock_setNonBlocking(nextSock);
+            list_add(sockList,nextSock);  
+        }
     }
     else{
         //intialize the socket to make it blocking again, it is set to non-blocking by the loop
@@ -761,47 +846,28 @@ int handleNew(Socket* sock, hn_Config* conf, List* sockList){
                 sock_destroy(sock,NULL);
                 return 0;
             }
-            hn_Socket* hnSock=malloc(sizeof(hn_Socket));
-            hn_sockInit(hnSock,sock,SOCK_MODE_RELAY);
-            Socket* nextSock=createTcpSocket();
-            hn_Socket* hnSockNext=malloc(sizeof(hn_Socket));
-            hn_sockInit(hnSockNext,nextSock,SOCK_MODE_RELAY);
-            if(!nextSock->ptr){
-                printf("WARNING: hnsock did not get linked with nextSock\n");
-                printf("is allocated hnSockNext: %d, nextSock: %d\n",hnSockNext!=NULL,nextSock!=NULL);
-            }
-            if(!hnSock||!hnSockNext||!nextSock){
-                printf("Could not malloc sockets\n");
+            Socket* nextSock=NULL;
+            int r=createRelay(&nextSock,sock,connUrl,&(conf->bridge->context));
+            if(!r){
+                printf("Could not setup relay\n");
+                sock_destroy(sock,NULL);
                 return 0;
             }
-            int r=initializeConnect(connUrl,nextSock,hnSock,&(conf->bridge->context));
-            if(r==1){
-                //nextSock is connected to an ip addresss
+            else{
+                // relay is setup, send ack
+                // but only if the connection is not waiting for a reverse connection
+                // if its waiting, ack will be sent after the reverse connection is established
+                if(r==1){
                 str_reset(buff,BUFF_SIZE);
                 str_set(buff,"CONNECTED");
                 //printf("About to send connected ack: %s\n",buff);
                 hn_sendMsg(sock,buff);
-                //printf("setting up relay...\n");
-                hnSock->relay.next=nextSock;
-                hnSock->relay.isWaiting=0;
-                hnSockNext->relay.next=sock;
-                hnSockNext->relay.isWaiting=0;
+                }
                 // Add the socket to watch list
+                if(nextSock){
                 sock_setNonBlocking(nextSock);
                 list_add(sockList,nextSock);
-            }
-            else if(r==2){
-                // sock is waiting for a reverse connection
-                // nextSock is not being used, free it
-                // sock is already added to waiting list by initializeConnect
-                printf("Waiting for reverse connection..\n");
-                sock_destroy(nextSock,NULL);
-            }
-            else{
-                printf("Could not connect to url: %s\n",connUrl);
-                sock_destroy(sock,NULL);
-                sock_destroy(nextSock,NULL);
-                return 0;
+                }
             }
         }
         else if(str_startswith(buff,"HN1.0/LISTEN_NOTIFY")){
@@ -904,12 +970,11 @@ int handleNew(Socket* sock, hn_Config* conf, List* sockList){
             sock_destroy(sock,NULL);
             return 0;
         }
-        //set it back to non-blocking and add to list to watch for events
-        sock_setNonBlocking(sock);
-        list_add(sockList,sock);
-        return 1;
     }
-    return 0;
+    //set it back to non-blocking and add to list to watch for events
+    sock_setNonBlocking(sock);
+    list_add(sockList,sock);
+    return 1;
 }
 
 int handleRead(Socket* sock, hn_Config* conf, List* sockList){
