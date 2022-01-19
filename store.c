@@ -42,11 +42,11 @@ char* getSaltForListenId(char* id, BridgeContext* context){
 hn_Socket* getWaitingSocket(BridgeContext* context,char* listenId, char* otp){
     hn_Socket *listenSock=getListeningSock(listenId,context);
     if(!listenSock){
-        printf("Could not find listening socket for %s\n",listenId);
+        printf("[getWaitingSocket] Could not find listening socket for %s\n",listenId);
         return 0;
     }
     if(listenSock->mode!=SOCK_MODE_LISTEN){
-        printf("Socket is not in listen mode\n");
+        printf("[getWaitingSocket] Err: Socket is not in listen mode\n");
         return 0;
     }
     return map_get(&(listenSock->listen.waitingSocks),otp);
@@ -59,7 +59,7 @@ int removeWaitingSocket(BridgeContext* context,char* listenId, char* otp){
             return 0;
         }
     if(listenSock->mode!=SOCK_MODE_LISTEN){
-        printf("Socket is not in listen mode\n");
+        printf("[removeWaitingSocket] Err: Socket is not in listen mode\n");
         return 0;
     }
     return map_del(&(listenSock->listen.waitingSocks),otp,0);
@@ -75,7 +75,7 @@ int addWaitingSock(char* listenId, char* otp, hn_Socket* sock, BridgeContext* co
         return 0;
     }
     if(map_get(&(listenSock->listen.waitingSocks),otp)){
-        printf("A Socket already waiting for otp %s\n",otp);
+        printf("[addWaitingSock] Err: A Socket already waiting for otp %s\n",otp);
         return 0;
     }
     map_set(&(listenSock->listen.waitingSocks),otp,sock,0);
@@ -233,7 +233,6 @@ while(i<argc){
         char* val=malloc(str_len(argv[i])+1);
         str_set(val,argv[i]);
         map_set(map,"mode",val,1);
-        printf("[argsToMap] Setting mode from cli: %s\n",val);
         i++;
         continue;
     }
@@ -242,7 +241,6 @@ while(i<argc){
         char* val=malloc(str_len(value)+1);
         str_set(val,value);
         map_set(map,key,val,1);
-        printf("[argsToMap] Setting %s: %s\n",key, val);
         i++;
     }
     else{
@@ -262,25 +260,20 @@ void configFileToMap(Map* map, char* file, char* section){
         if(file){
             file=NULL;
             section=NULL;
-            printf("[configFileToMap] setting the loop\n");
         }
-        printf("[configFileToMap] Setting on file %s: %s\n",key, value);
         char* mappedKey = NULL;
         if(oldSection){
             char* val=malloc(str_len(value)+1);
             str_set(val,value);
             map_set(map,key,val,1);
-            printf("[configFileToMap] %s KeyStore record %s: %s\n",oldSection, key, val);
         }
         else if(getMappedKey(&mappedKey,key,2)){
-            printf("got mapped key: %s\n",mappedKey);
             char* val=malloc(str_len(value)+1);
             str_set(val,value);
             map_set(map,mappedKey,val,1);
-            printf("[configFileToMap] Mapped Setting %s: %s\n",mappedKey, val);
         }
         else{
-            printf("Config file key not mapped: %s, val: %s\n",key,value);
+            printf("[Config file] key not mapped: %s, val: %s\n",key,value);
         }
     }
 }
@@ -423,22 +416,23 @@ int confInit(hn_Config* conf, int argc, char *argv[]){
     conf->rl=NULL;
     Map args;
     map_init(&args);
-    printf("Parsing cli args..\n");
     argsToMap(&args,argc,argv);
-    printf("Parsing cli args.. Completed.\n");
     int useEnv=1;
     char configFile[80]=CONFIG_PATH;
     if(map_get(&args,"use-env")){
         useEnv=str_toInt(map_get(&args,"use-env"));
     }
-    printf("Use env: %d\n",useEnv);
+    if(!useEnv)
+    printf("Not using Env Variables\n");
     if(useEnv){
         envToMap(&args);
     }
     if(map_get(&args,"config-file")){
         str_set(configFile,map_get(&args,"config-file"));
     }
-    printf("Config File: %s\n",configFile);
+    if(str_len(configFile)>1){
+        printf("Using config file: %s\n",configFile);
+    }
     //We need to set the map now in order: config file, env, cli
     // we didnt all it in order before so that we can extract useEnv and configFile
     // Not very optimised way but works since this only runs once on application startup
@@ -448,7 +442,6 @@ int confInit(hn_Config* conf, int argc, char *argv[]){
     envToMap(&args);
     argsToMap(&args,argc,argv);
     //Now read these values into the config struct
-    printf("Parsing config map to final struct..\n");
     parseArgs(conf,&args,configFile);
     map_cleanup(&args,1); //this will free the dymamic allocated memory of values
     return 1;
