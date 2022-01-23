@@ -667,7 +667,7 @@ int udp_read(char* data, int max, Socket* sock,struct sockaddr * from){
         if(nbytes<0){
             nbytes=0;
         }
-        printf("read %d bytes, from: ",nbytes);
+        printf("read %d bytes \n",nbytes);
     return nbytes;
 }
 

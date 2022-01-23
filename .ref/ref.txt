@@ -4,3 +4,7 @@ cc test/mdns.c utils.c netUtils.c dns/codec.c dns/output.c dns/mappings.c
 
 # Homenet compile, without DNS packet calls
 cc utils.c netUtils.c store.c homeNet.c cli.c sha/sha2.c
+
+# All 
+
+cc utils.c netUtils.c store.c homeNet.c cli.c sha/sha2.c dns/codec.c dns/mappings.c dns/output.c -o homenet

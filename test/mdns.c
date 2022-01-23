@@ -12,6 +12,7 @@
 
 
 void createQuery(dns_packet_t* packet, size_t* size){
+    static int count=0;
   dns_question_t domain;
   dns_query_t    query;
   edns0_opt_t    opt;
@@ -48,7 +49,9 @@ void createQuery(dns_packet_t* packet, size_t* size){
     str_toIpAddr((struct sockaddr*)&ip,"192.169.29.90");
 
     // Setup TXT record answer
-    char* txt="hecvdcfbgllo=hcdvfbgnhi\nmeow=catdcfvgbnhmj67";
+    char txt[100]="";
+    sprintf(txt,"PORT=2000;meow=count-%d",count);
+    count++;
     edns[0].txt.name      = "bridge.hn.local.";
     edns[0].txt.text        = txt;
     edns[0].txt.type        = RR_TXT;

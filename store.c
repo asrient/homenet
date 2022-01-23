@@ -4,7 +4,12 @@
 #include "utils.h"
 #include "netUtils.h"
 #include "homeNet.h"
+#include "dns/dns.h"
+#include "dns/mappings.h"
+#include "dns/output.h"
+#include <time.h>
 
+#define DNS_BUFF 1024
 
 char* getEnv(char* key){
     return getenv(key);
@@ -17,7 +22,7 @@ hn_Socket* getListeningSock(char* id, BridgeContext* context){
 struct sockaddr_in* getIpAddrForId(char* id,BridgeContext* context){
     MdnsRecord* record=map_get(&(context->mdnsStore),id);
     if(!record){
-        printf("Could not find record for %s\n",id);
+        printf("[Mdns Store] Could not find record for %s\n",id);
         return NULL;
     }
     return &(record->ip);
@@ -351,6 +356,7 @@ int parseArgs(hn_Config* conf,Map* args, char* file){
         getValue("url",bm->rlUrl,args);
         getValue("salt",bm->rlPass,args);
         getValue("master-key",bm->context.masterKey,args);
+        getValue("name",bm->context.name,args);
         int useRL=1;
         getValueBool("use-rl",&useRL,args);
         if(useRL==0){
@@ -444,4 +450,204 @@ int confInit(hn_Config* conf, int argc, char *argv[]){
     parseArgs(conf,&args,configFile);
     map_cleanup(&args,1); //this will free the dymamic allocated memory of values
     return 1;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+int sendMdnsQuery(char* name){
+    //
+    return 1;
+}
+
+int getMdnsRecordsForName(Item* out[], int max, char* name, Map* mdnsStore){
+    char queryWithDot[str_len(name)+5];
+    sprintf(queryWithDot,".%s",name);
+    int count=0;
+    Item* i=map_forEach(mdnsStore);
+    while(i&&count<max){
+        MdnsRecord* rec=i->value;
+        if(str_isEqual(name,rec->name) || str_endswith(rec->name,queryWithDot)){
+            out[count]=i;
+            count++;
+        }
+        i=map_forEach(NULL);
+    }
+    return count;
+}
+
+MdnsRecord* getMdnsRecordForIpAddr(char* listenIdOut,struct sockaddr_in* ip,BridgeContext* context){
+    char ip1Str[IPADDR_SIZE];
+    ipAddr_toString((struct sockaddr*)ip,ip1Str);
+    char ip2Str[IPADDR_SIZE];
+    Item* i=map_forEach(&(context->mdnsStore));
+    while(i){
+        MdnsRecord* rec=i->value;
+        ipAddr_toString((struct sockaddr*)&(rec->ip),ip2Str);
+        if(str_isEqual(ip1Str,ip2Str)){
+            str_set(listenIdOut,i->key);
+            return rec;
+        }
+        i=map_forEach(NULL);
+    }
+    return NULL;
+}
+
+void handleMdnsRead(Socket* sock, hn_Config* conf){
+BridgeContext* context=&(conf->bridge->context);
+char buff[DNS_BUFF]="";
+struct sockaddr_in ip;
+int n=udp_read(buff,DNS_BUFF,sock,(struct sockaddr*)&ip);
+if(n<=0){
+    printf("[handleMdnsRead] noting to read\n");
+    return;
+}
+dns_decoded_t  resp[DNS_DECODEBUF_4K];
+size_t respSize=sizeof(resp);
+dns_rcode_t r=dns_decode(resp,&(respSize),(dns_packet_t*)buff,n);
+dns_query_t* query=(dns_query_t *)resp;
+if(r!=RCODE_OKAY){
+    printf("broken packet: \n ");
+    dns_print_result(query);
+    return;
+}
+if(query->ancount==0&&query->qdcount>0){
+    // its a query, if its for us answer it
+    dns_question_t *questions=query->questions;
+      for (size_t i = 0 ; i < query->qdcount ; i++){
+        if(questions[i].name==NULL){
+            printf("corrupted name received\n");
+            continue;
+        }
+        //remove the last dot
+        char* qname=questions[i].name;
+        if(str_endswith(qname,".")){
+            qname[str_len(qname)-1]='\0';
+        }
+    if(str_isEqual(context->name,qname)||str_isEqual(qname,"bridge.hn.local")){
+        //we have a match
+        printf("its a question for us to handle\n");
+        printf("-----------------------\n");
+        dns_print_result(query);
+        printf("-----------------------\n");
+        dns_answer_t ans;
+        char txt[100]="";
+        sprintf(txt,"PORT=%d;",conf->bridge->port);
+        //name should go in format: bridge.hn.local.
+        char nameDot[str_len(context->name)+5];
+        sprintf(nameDot,"%s.",context->name);
+        ans.txt.name   = nameDot;
+        ans.txt.text  = txt;
+        ans.txt.type  = RR_TXT;
+        ans.txt.class = CLASS_IN;
+        ans.txt.ttl  = 0;
+        ans.txt.len = str_len(txt);
+        query->answers = &ans;
+        query->ancount = 1;
+        query->query = false;
+        str_reset(buff,DNS_BUFF);
+        size_t size = DNS_BUFF;
+        dns_rcode_t rc = dns_encode((dns_packet_t *)buff,&size,query);
+        printf("About to send response\n");
+        printf("-----------------------\n");
+        dns_print_result(query);
+        printf("-----------------------\n");
+        int r=mdns_send(buff,(int)size);
+        if(r<=0){
+            printf("Failed to bridge mdns resp packet\n");
+        }
+        else{
+            printf("Sent packet of size %d\n",r);
+        }
+        break;
+  }
+  else{
+      //printf("Not a question for us to handle\n");
+  }
+}
+//the query is not for a hn bridge 
+}
+else if(query->ancount>0){
+    // it has answers
+    //check if its an hn service
+    //if so, check if it already exists in our records
+    //if it exits and ip matches, update the info and timestamp
+    //if not, add it to our records
+    //printf("got a answer packet\n");
+    /*
+    printf("-----------------------\n");
+    dns_print_result(query);
+    printf("-----------------------\n");
+    */
+    dns_answer_t* answers=query->answers;
+    for(int i=0;i<query->ancount;i++){
+    MdnsRecord* rec=NULL;
+    if(!(answers[i].generic.type==RR_TXT)||!answers[i].txt.name){
+        //printf("answer '%s' not in TXT format, checking next.. \n",answers[i].txt.name);
+        continue;
+    }
+    char name[300]="";
+    str_set(name,answers[i].txt.name);
+    //remove the last dot, which is added by the library
+    name[str_len(name)-1]='\0';
+    if(str_endswith(name,".hn.local")){
+        //we have a txt record
+        printf("its a VALID hn answer\n");
+        char txt[500]="";
+        str_set(txt,answers[i].txt.text);
+        char listenKey[20]="";
+        char *saveptr1;
+        char* line = strtok_r(txt, ";", &saveptr1);
+        int gotPort=0;
+        while(line){
+            char *saveptr2;
+            char* key=strtok_r(line, "=", &saveptr2);
+            char* value=strtok_r(NULL, "=", &saveptr2);
+            if(str_isEqual(key,"PORT")&&rec==NULL&&!gotPort){
+                int port=str_toInt(value);
+                printf("port from txt: %d\n",port);
+                ipAddr_setPort((struct sockaddr*)&ip,port);
+                gotPort=1;
+                rec=getMdnsRecordForIpAddr(listenKey,&ip,context);
+                if(!rec||!str_isEqual(name,rec->name)){
+                    //we dont have a record
+                    printf("adding new record..\n");
+                    rec=malloc(sizeof(MdnsRecord));
+                    bzero(rec,sizeof(MdnsRecord));
+                    map_init(&(rec->data));
+                    str_set(rec->name,name);
+                    generateCode(listenKey,14);
+                    map_set(&(context->mdnsStore),listenKey,rec,1);
+                    rec->ip=ip;
+                    printf("Added Mdns Record: %s\n Name: %s\n",listenKey,rec->name);
+                    printf("Ip address: ");
+                    ipAddr_print((struct sockaddr*)&ip);
+                }
+                else{
+                    //we have a record
+                    printf("[Mdns Store] Updating record: %s\n",listenKey);
+                    map_cleanup(&(rec->data),1);
+                }
+                rec->timestamp=time(NULL);
+            }
+            else if(rec){
+                char* val=malloc(sizeof(char)*(str_len(value)+1));
+                str_set(val,value);
+                map_set(&(rec->data),key,val,1);
+                //printf("[handleMdnsRead] Added (%s : %s) to rec: %s\n",key,val,rec->name);
+            }
+            else{
+                printf("[handleMdnsRead] Err: got key: %s but rec is not set yet\n",key);
+                break;
+            }
+            line = strtok_r(NULL, ";", &saveptr1);
+        }
+        printf("modified record: %s\n",listenKey);
+        if(rec)
+        map_print(&(rec->data));
+    }
+    else{
+        //printf("[handleMdnsRead] Not a valid hn answer name: %s\n",name);
+    }
+    }
+}
 }

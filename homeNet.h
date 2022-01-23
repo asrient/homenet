@@ -19,12 +19,14 @@ struct MdnsRecord{
 struct sockaddr_in ip;
 char name[MAX_URL_SIZE];
 Map data;
+time_t timestamp;
 };
 
 typedef struct MdnsRecord MdnsRecord;
 
 struct BridgeContext{
-char masterKey[50];
+char masterKey[20];
+char name[50];
 Map queryKeys;
 //FILE *listenKeysFile;
 Map listenKeys;
@@ -129,7 +131,10 @@ hn_Socket* getWaitingSocket(BridgeContext* context,char* listenId, char* otp);
 char* getSaltForListenId(char* id, BridgeContext* context);
 struct sockaddr_in* getIpAddrForId(char* id,BridgeContext* context);
 hn_Socket* getListeningSock(char* id, BridgeContext* context);
-
+void handleMdnsRead(Socket* sock, hn_Config* conf);
+MdnsRecord* getMdnsRecordForIpAddr(char* listenIdOut,struct sockaddr_in* ip,BridgeContext* context);
+int getMdnsRecordsForName(Item* out[], int max, char* name, Map* mdnsStore);
 
 int hn_start(hn_Config *conf);
+char *generateCode(char* randomString,int length);
 #endif

@@ -90,6 +90,8 @@ int map_cleanup(Map* map, int freeItem);
 
 Item* map_forEach(Map* map);
 
+void map_print(Map* map);
+
 struct listNode{
 void* data;
 struct listNode* next;

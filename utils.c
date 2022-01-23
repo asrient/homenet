@@ -239,15 +239,16 @@ void str_unEscape(char* str){
 ////////////////////
 
 void map_init(Map* map){
+    bzero(map,sizeof(Map));
     map->start=NULL;
     map->count=0;
 }
 
 Item* map_getItem(Map* map,char key[]){
-    if(!(map->start)){
+    if(map->start==NULL){
     return NULL;
     }
-    for(Item* i=map->start;i;i=i->next){
+    for(Item* i=map->start;i!=NULL;i=i->next){
         if(str_isEqual(i->key,key)){
             return i;
         }
@@ -266,13 +267,14 @@ Item* map_lastItem(Map* map){
 void map_set(Map* map, char key[], void* value, int freeItem){
     Item* prevItem=map_getItem(map,key);
     
-    if(prevItem){
+    if(prevItem!=NULL){
         if(freeItem)
         free(prevItem->value);
         prevItem->value=value;
     }
     else{
         Item* newItem=(Item*)malloc(sizeof(Item));
+        bzero(newItem,sizeof(Item));
     str_set(newItem->key,key);
     newItem->value=value;
     newItem->next=map->start;
@@ -295,7 +297,7 @@ void* map_get(Map* map, char key[]){
 
 int map_del(Map* map, char key[], int freeItem){
     Item* prev=NULL;
-    for(Item* i=map->start;i->next;i=i->next){
+    for(Item* i=map->start;i!=NULL;i=i->next){
         if(str_isEqual(i->key,key)){
             if(prev)
             prev->next=i->next;
@@ -324,13 +326,23 @@ Item* map_forEach(Map* map){
 
 int map_cleanup(Map* map, int freeItem){
     Item* next;
-    for(Item* i=map->start;i;i=next){
+    for(Item* i=map->start;i!=NULL;i=next){
         next=i->next;
         if(freeItem)
         free(i->value);
         free(i);
     }
+    map->start=NULL;
+    map->count=0;
     return 1;
+}
+
+void map_print(Map* map){
+    Item* item=map_forEach(map);
+    while(item){
+        printf("[ %s = %s ]\n",item->key,(char*)item->value);
+        item=map_forEach(NULL);
+    }
 }
 
 ////////////////////////////////

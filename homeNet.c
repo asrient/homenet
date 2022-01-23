@@ -15,7 +15,6 @@
 ****************************************************************************/
 
 // General
-char *generateCode(char* randomString,int length);
 int charIndex(char* str,int start, int stop, char c);
 void textInput(char* buff, int max);
 
@@ -31,14 +30,19 @@ int authSolve(char* buff,Socket* sock, char* key, char* salt, char* password);
 // Protocol message
 int hn_sendMsg(Socket* sock, char* buff);
 int hn_receiveMsg(char* buff, int max, Socket* sock);
+int start_listen(hn_Config *conf);
+int start_query(hn_Config *conf);
 
 // Starting handshake
 int initializeConnect(char* constUrl, Socket* sock, hn_Socket* waitingHnSock, BridgeContext* context);
 int initializeListenNotify(char* listenId, char* salt, char* url, Socket* sock);
 int initializeListenConn(char* listenId, char* otp, char* url, Socket* sock);
+int initializeQuery(Map recs[], int max, char* name, char* url, char* pass, Socket* sock);
 
 // Start program in various modes
 int start_bridge(hn_Config *conf);
+int start_connect(hn_Config *conf);
+int start_reverseListen(hn_Config *conf);
 
 // Handle events from the sockets
 int handleNew(Socket* sock, hn_Config* conf, List* sockList);
@@ -625,8 +629,71 @@ int initializeListenConn(char* listenId, char* otp, char* url, Socket* sock){
     }
 }
 
-int initializeQuery(char* name, char* url, Socket* sock){
-    
+int initializeQuery(Map recs[], int max, char* name, char* url, char* pass, Socket* sock){
+    //Connect to url
+    //send query message
+    //wait for response and put the recs in map array
+    // result format: QUERY_RESPONSE {listenId} {name} \n {key}={value};{key}={value};
+    // recs map keys: name, key, data
+    int r=initializeConnect(url,sock,NULL,NULL);
+    if(r!=1){
+        printf("Could not connect to url: %s\n",url);
+        return 0;
+    }
+    printf("(Query) Connected to url: %s\n",url);
+    char buff[BUFF_SIZE]="HN1.0/QUERY ";
+    str_concat(buff,name); 
+    hn_sendMsg(sock,buff);
+    str_reset(buff,BUFF_SIZE);
+    int read=authSolve(buff,sock,NULL,NULL,pass);
+    if(read<=0){
+        printf("Could not authenticate sock, pass: %s\n",pass);
+        return 0;
+    }
+    int count=0;
+    while(count<max){
+        if(read<=0){
+            printf("Read finished, socket closed\n");
+            break;
+        }
+        if(str_startswith(buff,"QUERY_RESPONSE ")){
+            char *saveptr;
+            char buff2[str_len(buff)+1];
+            str_set(buff2,buff);
+            strtok_r(buff, " ", &saveptr);
+            char* keyPtr = strtok_r(NULL, " ", &saveptr);
+            char* namePtr = strtok_r(NULL, "\n", &saveptr);
+            if(keyPtr&&namePtr){
+                char* key=malloc(str_len(keyPtr)+1);
+                str_set(key,keyPtr);
+                char* sName=malloc(str_len(namePtr)+1);
+                str_set(sName,namePtr);
+                Map* rec=&(recs[count]);
+                map_init(rec);
+                map_set(rec,"name",sName,1);
+                map_set(rec,"key",key,1);
+                char *saveptr1;
+                strtok_r(buff2, "\n", &saveptr1);
+                char* dataPtr = strtok_r(NULL, "\n", &saveptr1);
+                if(dataPtr){
+                    char* data=malloc(str_len(dataPtr)+1);
+                    str_set(data,dataPtr);
+                    map_set(rec,"data",data,1);
+                }
+                else
+                printf("no data found\n");
+                map_print(rec);
+                count++;
+                str_reset(buff,BUFF_SIZE);
+                read=hn_receiveMsg(buff,BUFF_SIZE,sock);
+            }
+        }
+        else{
+            printf("(Query) Unknown proto resp: %s\n",buff);
+            return 0;
+        }
+    }
+    return count;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////
@@ -636,6 +703,17 @@ int start_bridge(hn_Config *conf){
     list_init(&sockList);
     //if port is set, start a server
     //we dont assing a hnSock to server socket
+    // check if name is set properly
+    if(str_len(conf->bridge->context.name)<=0){
+        char randName[11]="";
+        generateCode(randName,8);
+        sprintf(conf->bridge->context.name,"%s.bridge.hn.local",randName);
+        printf("Did not receive a name, generated one: %s\n",conf->bridge->context.name);
+    }
+    else if(!str_endswith(conf->bridge->context.name,".bridge.hn.local")){
+        sprintf(conf->bridge->context.name,"%s.bridge.hn.local",conf->bridge->context.name);
+    }
+    printf("Starting as %s\n",conf->bridge->context.name);
 if(conf->bridge->port>=0){
     Socket* servSock=malloc(sizeof(Socket));
     if(!createTcpServer(servSock,conf->bridge->port)){
@@ -643,9 +721,13 @@ if(conf->bridge->port>=0){
         return 0;
     }
     sock_setNonBlocking(servSock);
-printf("[Server started]\n IP addr: ");
-ipAddr_print(&(servSock->ipAddr));
-list_add(&sockList,servSock);
+    struct sockaddr ip;
+    sock_getMyIpAddr(&ip,servSock);
+    conf->bridge->port=ipAddr_getPort(&ip);
+    printf("[Server started] Listening on port: %d\n",conf->bridge->port);
+    printf("IP addr: ");
+    ipAddr_print(&ip);
+    list_add(&sockList,servSock);
 }
 else{
     printf("Not starting up local server\n");
@@ -662,7 +744,18 @@ if(str_len(conf->bridge->rlUrl)){
     sock_setNonBlocking(rlSock);
     list_add(&sockList,rlSock);
 }
-//TODO: setup mdns socket too
+//setup mdns socket too
+//Todo: add support to optionaly not use mdns
+Socket* mdnsSock=malloc(sizeof(Socket));
+if(!mdns_start(mdnsSock)){
+    printf("Failed to start mDNS\n");
+    return 0;
+}
+printf("mDNS started.\n");
+hn_Socket* mdnsHnSock=malloc(sizeof(hn_Socket));
+hn_sockInit(mdnsHnSock,mdnsSock,SOCK_MODE_MDNS);
+sock_setNonBlocking(mdnsSock);
+list_add(&sockList,mdnsSock);
 hn_loop(&sockList,conf);
 return 1;
 }
@@ -760,7 +853,32 @@ int start_reverseListen(hn_Config *conf){
 }
 
 int start_query(hn_Config *conf){
-    //
+    if(str_len(conf->query->name)<1||str_len(conf->query->bridgeUrl)<1){
+        printf("[start_query] No url or name set to connect to\n");
+        return 0;
+    }
+    Map recs[10];
+    Socket* sock=createTcpSocket();
+    char pass[60]="";
+    if((str_len(conf->query->key)>1)&&(str_len(conf->query->salt)>1)){
+        sprintf(pass,"%s:%s",conf->query->key,conf->query->salt);
+        printf("pass: %s\n",pass);
+    }
+    int r=initializeQuery(recs, 10, conf->query->name, conf->query->bridgeUrl, pass, sock);
+    if(r>0){
+        printf("[start_query] Found %d records\n",r);
+        for(int i=0;i<r;i++){
+            printf("------------------\nKey: %s\n",map_get(&recs[i],"key"));
+            printf("Name: %s\n",map_get(&recs[i],"name"));
+            printf("--Data--\n %s\n",map_get(&recs[i],"data"));
+            printf("------------------\n");
+        }
+    }
+    else{
+        printf("[start_query] No records found\n");
+    }
+    sock_destroy(sock, NULL);
+    return 1;
 }
 
 int hn_start(hn_Config *conf){
@@ -975,10 +1093,45 @@ int handleNew(Socket* sock, hn_Config* conf, List* sockList){
                 return 0;
             }
         }
-        else if(str_startswith(buff,"HN1.0/QUERY ")){
+        else if(str_startswith(buff,"HN1.0/QUERY ")&&(conf->mode==HN_MODE_BRIDGE)){
             // authenticate
             // check mdnsRecors and send the ones requested
             //close socket, this will not hit the loop
+            // should be in format: HN1.0/QUERY <service name>
+            // might return multiple records
+            // base query of ".hn.local" is not allowed
+            printf("got a query request: %s\n",buff);
+            char *saveptr;
+            char* txt = strtok_r(buff, " ", &saveptr);
+            char* namePtr = strtok_r(NULL, " ", &saveptr);
+            char name[str_len(namePtr)+1];
+            str_set(name,namePtr);
+            printf("query for: %s\n",name);
+            int authResult=authThrowChallenge(buff,sock,&(conf->bridge->context.queryKeys));
+            if(!authResult){
+                printf("Could not authenticate query sock\n");
+                sock_destroy(sock,NULL);
+                return 0;
+            }
+            Item* items[10];
+            int n=getMdnsRecordsForName(items,10,name,&(conf->bridge->context.mdnsStore));
+            if(n<=0){
+                printf("Could not find any records for name: %s\n",name);
+            }
+            for(int i=0;i<n;i++){
+                char* key=items[i]->key;
+                MdnsRecord* rec=items[i]->value;
+                str_reset(buff,BUFF_SIZE);
+                sprintf(buff,"QUERY_RESPONSE %s %s\n",key,rec->name);
+                Item* i=map_forEach(&(rec->data));
+                while(i){
+                    sprintf(buff+str_len(buff),"%s=%s;",i->key,(char*)i->value);
+                    i=map_forEach(NULL);
+                }
+                hn_sendMsg(sock,buff);
+            }
+            sock_destroy(sock, NULL);
+            return 1;
         }
         else{
             // It is possibly a HTTP request
@@ -1099,6 +1252,8 @@ int handleRead(Socket* sock, hn_Config* conf, List* sockList){
     }
     else if(hnSock->mode==SOCK_MODE_MDNS){
         // handle the mdns socket, will only be used in bridge mode
+        printf("got read from mdns socket\n");
+        handleMdnsRead(sock,conf);
     }
     else{
         // Need to pull out read data or else we keep getting the same event
@@ -1135,6 +1290,7 @@ int handleClose(Socket* sock, hn_Config* conf, List* sockList){
     else{
         return 0;
     }
+    return 1;
 }
 
 int processEvent(Socket* sock, int event, List* sockList, hn_Config* conf){
