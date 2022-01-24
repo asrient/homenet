@@ -546,7 +546,7 @@ Socket* sock=(Socket*) list_forEach(list);
    timeout.tv_usec = 0;
     fdsToProcess = select(maxFd + 1, &readSet, &writeSet, NULL, &timeout);
     if(fdsToProcess==0){
-        perror("select() timeout\n");
+        //perror("select() timeout\n");
         return SOCK_EVENT_TIMEOUT;
     }
     if(fdsToProcess<0){

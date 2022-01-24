@@ -50,6 +50,7 @@ int handleRead(Socket* sock, hn_Config* conf, List* sockList);
 int handleClose(Socket* sock, hn_Config* conf, List* sockList);
 int processEvent(Socket* sock, int event, List* sockList, hn_Config* conf);
 int hn_loop(List* sockList, hn_Config* conf);
+void houseKeeping(hn_Config* conf);
 
 // HNSocket Utilities
 void hn_sockInit(hn_Socket* hnSock, Socket* sock, int mode);
@@ -752,6 +753,7 @@ if(!mdns_start(mdnsSock)){
     return 0;
 }
 printf("mDNS started.\n");
+sendMdnsQuery("bridge.hn.local");
 hn_Socket* mdnsHnSock=malloc(sizeof(hn_Socket));
 hn_sockInit(mdnsHnSock,mdnsSock,SOCK_MODE_MDNS);
 sock_setNonBlocking(mdnsSock);
@@ -1293,6 +1295,23 @@ int handleClose(Socket* sock, hn_Config* conf, List* sockList){
     return 1;
 }
 
+void houseKeeping(hn_Config* conf){
+    //send ping to rl_out socket (todo)
+    //query mdns
+    //remove very old mdns recs that are not updated recently (todo)
+    //health check listeningSocks (todo)
+    if(conf->mode==HN_MODE_BRIDGE){
+        BridgeContext* context=&(conf->bridge->context);
+        // updating the last refresh time
+        if((time(NULL)-context->mdnsLastRefresh)>=REFRESH_INTERVAL_SECS){
+            printf("Refreshing mdns records\n");
+            context->mdnsLastRefresh=time(NULL);
+            // send mdns query
+            sendMdnsQuery(MDNS_QUERY);
+        }
+    }
+}
+
 int processEvent(Socket* sock, int event, List* sockList, hn_Config* conf){
 if(event==SOCK_EVENT_READ){
     handleRead(sock,conf,sockList);
@@ -1330,6 +1349,7 @@ if(event==SOCK_EVENT_TIMEOUT){
     continue;
 }
 processEvent(selSock, event, sockList, conf);
+houseKeeping(conf);
 }
 while(1);
 return 0;

@@ -12,6 +12,10 @@
 
 #define BUFF_SIZE 600
 
+#define REFRESH_INTERVAL_SECS 10
+
+#define MDNS_QUERY "hn.local"
+
 // Fix: Change this acc to platforms
 #define CONFIG_PATH "conf.ini"
 
@@ -26,12 +30,12 @@ typedef struct MdnsRecord MdnsRecord;
 
 struct BridgeContext{
 char masterKey[20];
-char name[50];
+char name[100];
 Map queryKeys;
-//FILE *listenKeysFile;
 Map listenKeys;
 Map listeningSocks; //type: hn_Socket
 Map mdnsStore;
+time_t mdnsLastRefresh;
 };
 
 typedef struct BridgeContext BridgeContext;
@@ -134,6 +138,7 @@ hn_Socket* getListeningSock(char* id, BridgeContext* context);
 void handleMdnsRead(Socket* sock, hn_Config* conf);
 MdnsRecord* getMdnsRecordForIpAddr(char* listenIdOut,struct sockaddr_in* ip,BridgeContext* context);
 int getMdnsRecordsForName(Item* out[], int max, char* name, Map* mdnsStore);
+int sendMdnsQuery(char* name);
 
 int hn_start(hn_Config *conf);
 char *generateCode(char* randomString,int length);

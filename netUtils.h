@@ -35,7 +35,7 @@ int isDomainName(char* str);
 #define SOCK_EVENT_TIMEOUT 0
 #define SOCK_EVENT_ERROR -1
 
-#define SELECT_TIMEOUT_SEC 3 * 60
+#define SELECT_TIMEOUT_SEC 5
 
 struct Socket{
 int fd;

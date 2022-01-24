@@ -110,6 +110,7 @@ void bridgeContextInit(BridgeContext* context){
     map_init(&(context->queryKeys));
     map_init(&(context->listeningSocks));
     map_init(&(context->mdnsStore));
+    context->mdnsLastRefresh=0;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////
@@ -455,7 +456,48 @@ int confInit(hn_Config* conf, int argc, char *argv[]){
 ////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 int sendMdnsQuery(char* name){
-    //
+    printf("sending mdns query for: %s\n",name);
+    char nameWithDot[strlen(name)+2];
+    sprintf(nameWithDot,"%s.",name);
+    dns_packet_t packet[DNS_BUFFER_UDP];
+    size_t  reqsize;
+    reqsize = sizeof(packet);
+    // setup the packet
+  dns_question_t domain;
+  dns_query_t    query;
+  domain.name  = nameWithDot;
+  domain.type  = dns_type_value("TXT");
+  domain.class = CLASS_IN;
+
+  query.id          = 1234;     /* should be a random value */
+  query.query       = true;
+  query.opcode      = OP_QUERY;
+  query.aa          = false;
+  query.tc          = false;
+  query.rd          = true;
+  query.ra          = false;
+  query.z           = false;
+  query.ad          = false;
+  query.cd          = false;
+  query.rcode       = RCODE_OKAY;
+  query.qdcount     = 1;
+  query.questions   = &domain;
+  query.ancount     = 0;
+  query.answers     = NULL;
+  query.nscount     = 0;
+  query.nameservers = NULL;
+  query.arcount     = 0;
+  query.additional  = NULL;
+
+// encode the packet
+dns_rcode_t rc = dns_encode(packet,&reqsize,&query);
+printf("size of encoded packet: %d\n", (int) reqsize);
+    int r=mdns_send((void*)packet,(int)reqsize);
+    if(r<=0){
+        printf("Failed to send packet\n");
+        return 0;
+    }
+    printf("Sent packet of size %d\n",r);
     return 1;
 }
 
@@ -493,6 +535,7 @@ MdnsRecord* getMdnsRecordForIpAddr(char* listenIdOut,struct sockaddr_in* ip,Brid
 }
 
 void handleMdnsRead(Socket* sock, hn_Config* conf){
+printf("handling mdns read\n");
 BridgeContext* context=&(conf->bridge->context);
 char buff[DNS_BUFF]="";
 struct sockaddr_in ip;
@@ -506,8 +549,8 @@ size_t respSize=sizeof(resp);
 dns_rcode_t r=dns_decode(resp,&(respSize),(dns_packet_t*)buff,n);
 dns_query_t* query=(dns_query_t *)resp;
 if(r!=RCODE_OKAY){
-    printf("broken packet: \n ");
-    dns_print_result(query);
+    printf("got broken packet \n ");
+    //dns_print_result(query);
     return;
 }
 if(query->ancount==0&&query->qdcount>0){
@@ -519,13 +562,14 @@ if(query->ancount==0&&query->qdcount>0){
             continue;
         }
         //remove the last dot
-        char* qname=questions[i].name;
+        char qname[str_len(questions[i].name)+1];
+        str_set(qname,questions[i].name);
         if(str_endswith(qname,".")){
             qname[str_len(qname)-1]='\0';
         }
     if(str_isEqual(context->name,qname)||str_isEqual(qname,"bridge.hn.local")){
         //we have a match
-        printf("its a question for us to handle\n");
+        printf("its a question for us to handle: %s\n",qname);
         printf("-----------------------\n");
         dns_print_result(query);
         printf("-----------------------\n");
@@ -547,10 +591,12 @@ if(query->ancount==0&&query->qdcount>0){
         str_reset(buff,DNS_BUFF);
         size_t size = DNS_BUFF;
         dns_rcode_t rc = dns_encode((dns_packet_t *)buff,&size,query);
+        /*
         printf("About to send response\n");
         printf("-----------------------\n");
         dns_print_result(query);
         printf("-----------------------\n");
+        */
         int r=mdns_send(buff,(int)size);
         if(r<=0){
             printf("Failed to bridge mdns resp packet\n");
@@ -561,7 +607,7 @@ if(query->ancount==0&&query->qdcount>0){
         break;
   }
   else{
-      //printf("Not a question for us to handle\n");
+      printf("Not a question for us to handle: %s\n",qname);
   }
 }
 //the query is not for a hn bridge 
@@ -582,7 +628,7 @@ else if(query->ancount>0){
     for(int i=0;i<query->ancount;i++){
     MdnsRecord* rec=NULL;
     if(!(answers[i].generic.type==RR_TXT)||!answers[i].txt.name){
-        //printf("answer '%s' not in TXT format, checking next.. \n",answers[i].txt.name);
+        printf("answer '%s' not in TXT format, checking next.. \n",answers[i].txt.name);
         continue;
     }
     char name[300]="";
@@ -592,6 +638,10 @@ else if(query->ancount>0){
     if(str_endswith(name,".hn.local")){
         //we have a txt record
         printf("its a VALID hn answer\n");
+        if(str_isEqual(name,context->name)){
+            printf("IGNORING OWN MDNS RESPONSE: %s\n",name);
+            continue;
+        }
         char txt[500]="";
         str_set(txt,answers[i].txt.text);
         char listenKey[20]="";
@@ -646,7 +696,7 @@ else if(query->ancount>0){
         map_print(&(rec->data));
     }
     else{
-        //printf("[handleMdnsRead] Not a valid hn answer name: %s\n",name);
+        printf("[handleMdnsRead] Not a valid hn answer name: %s\n",name);
     }
     }
 }
