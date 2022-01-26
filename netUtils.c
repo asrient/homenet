@@ -697,6 +697,8 @@ int mdns_send(const void* buffer, int size) {
     printf("Buff Size: %d, ipAddr Size: %d, IpAddr sendto: ",size,(int)sizeof(addr));
     sent=sendto(fd, (const char*)buffer, (size_t)size, 0, (struct sockaddr*)&(addr), sizeof(addr));
     printf("sent %d bytes\n",sent);
+    printf("Sent from ip: ");
+    ipAddr_print((struct sockaddr*)&addr);
 	if (sent < 0){
         perror("sendto");
 		return -1;

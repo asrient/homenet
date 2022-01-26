@@ -14,6 +14,8 @@
 
 #define REFRESH_INTERVAL_SECS 10
 
+#define BROADCAST_MIN_INTERVAL_SECS 3
+
 #define MDNS_QUERY "hn.local"
 
 // Fix: Change this acc to platforms
@@ -36,6 +38,7 @@ Map listenKeys;
 Map listeningSocks; //type: hn_Socket
 Map mdnsStore;
 time_t mdnsLastRefresh;
+time_t lastMdnsBroadcast;
 };
 
 typedef struct BridgeContext BridgeContext;

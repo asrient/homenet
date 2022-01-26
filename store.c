@@ -111,6 +111,7 @@ void bridgeContextInit(BridgeContext* context){
     map_init(&(context->listeningSocks));
     map_init(&(context->mdnsStore));
     context->mdnsLastRefresh=0;
+    context->lastMdnsBroadcast=0;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////
@@ -347,7 +348,7 @@ int parseArgs(hn_Config* conf,Map* args, char* file){
         bzero(bm,sizeof(struct bridgeMode));
         conf->bridge=bm;
         //now setup the bridge mode struct
-        conf->bridge->port=-1;
+        conf->bridge->port=0;
         bridgeContextInit(&(bm->context));
         // add the map keys
         if(str_len(file)>1){
@@ -569,10 +570,22 @@ if(r!=RCODE_OKAY){
 }
 if(query->ancount==0&&query->qdcount>0){
     // its a query, if its for us answer it
+    // check if its too soon to advertise again
+    // required to stop spamming or infinite loops
+    if((context->lastMdnsBroadcast+BROADCAST_MIN_INTERVAL_SECS)>time(NULL)){
+        printf("[handleMdnsRead] too soon to advertise again, not checking question\n");
+        return;
+    }
     dns_question_t *questions=query->questions;
       for (size_t i = 0 ; i < query->qdcount ; i++){
         if(questions[i].name==NULL){
             printf("corrupted name received\n");
+            continue;
+        }
+        // check if its TXT TYPE
+        if(questions[i].type!=RR_TXT){
+            printf("not TXT type. ip: ");
+            ipAddr_print((struct sockaddr*)&ip);
             continue;
         }
         //remove the last dot
@@ -583,7 +596,8 @@ if(query->ancount==0&&query->qdcount>0){
         }
     if(str_isEqual(context->name,qname)||str_isEqual(qname,"bridge.hn.local")){
         //we have a match
-        printf("its a question for us to handle: %s\n",qname);
+        printf("its a question for us to handle: %s\n Ip address of sender: ",qname);
+        ipAddr_print((struct sockaddr*)&ip);
         printf("-----------------------\n");
         dns_print_result(query);
         printf("-----------------------\n");
@@ -617,6 +631,7 @@ if(query->ancount==0&&query->qdcount>0){
         }
         else{
             printf("Sent packet of size %d\n",r);
+            context->lastMdnsBroadcast=time(NULL);
         }
         break;
   }
