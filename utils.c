@@ -567,6 +567,9 @@ int readConfigFile(char* key, char* value, char* filePath, char* section){
         str_copy(value,lValue);
         str_strip(key);
         str_strip(value);
+        if(value[0]=='"'){
+            str_removeChars(value,"\"");
+        }
         }
         else{
             // line is not in format key=value

@@ -150,19 +150,23 @@ Sample CLI usage:
 
 
 char *mapping[][4] = {
-//    KEY        | CLI KEY |  CONFIG KEY |  ENV KEY
-    {"mode",        NULL,      "Mode",      "MODE"},
-    {"config-file", "-config", NULL,        "CONFIG_FILE"},
-    {"use-env",     "-env",    "Use Env",   NULL},
-    {"url",         "-url",    "URL",       "URL"},
-    {"key",         "-key",    "Key",       "KEY"},
-    {"salt",        "-salt",   "Salt",      "SALT"},
-    {"master-key",  NULL,     "Master Key", "MASTER_KEY"},
-    {"port",        "-p",     "Port",       "PORT"},
-    {"name",        "-name",  "Name",       "NAME"},
-    {"local-ip",    "-ip",    "Local IP",   "LOCAL_IP"},
-    {"use-rl",      "-rl",    "Use RL",     "USE_RL"},
-    {"data",        "-data",  "Data",       "DATA"},
+//    KEY            | CLI KEY   |  CONFIG KEY     |    ENV KEY
+    {"mode",            NULL,      "Mode",               "MODE"},
+    {"config-file",     "-config", NULL,                 "CONFIG_FILE"},
+    {"use-env",         "-env",    "Use Env",            NULL},
+    {"url",             "-url",    "URL",                "URL"},
+    {"key",             "-key",    "Key",                "KEY"},
+    {"salt",            "-salt",   "Salt",               "SALT"},
+    {"master-key",      NULL,      "Master Key",         "MASTER_KEY"},
+    {"port",            "-p",      "Port",               "PORT"},
+    {"name",            "-name",   "Name",               "NAME"},
+    {"local-ip",        "-ip",     "Local IP",           "LOCAL_IP"},
+    {"use-rl",          "-rl",     "Use RL",             "USE_RL"},
+    {"data",            "-data",   "Data",               "DATA"},
+    {"use-mdns",        "-mdns",   "Use Mdns",           "USE_MDNS"},
+    {"conn-auth",       NULL,      "Connect Auth Level", "CONN_AUTH_LEVEL"},
+    {"query-auth",      NULL,      "Query Auth",         "QUERY_AUTH"},
+    {"rl-auth",         NULL,      "RL Auth",            "RL_AUTH"},
 };
 
 /*
@@ -352,12 +356,22 @@ int parseArgs(hn_Config* conf,Map* args, char* file){
             char* section2 = "Query Keys";
             configFileToMap(&bm->context.queryKeys, file, section2);
         }
+        //setting defaults
+        bm->connectAuthLevel=0;
+        bm->useMdns=1;
+        bm->requireQueryAuth=1;
+        bm->requireRLAuth=0;
+        // override from config map
         getValueInt("port",&bm->port,args);
         getValue("key",bm->rlId,args);
         getValue("url",bm->rlUrl,args);
         getValue("salt",bm->rlPass,args);
         getValue("master-key",bm->context.masterKey,args);
         getValue("name",bm->context.name,args);
+        getValueBool("use-mdns",&bm->useMdns,args);
+        getValueBool("query-auth",&bm->requireQueryAuth,args);
+        getValueBool("rl-auth",&bm->requireQueryAuth,args);
+        getValueInt("conn-auth",&bm->connectAuthLevel,args);
         int useRL=1;
         getValueBool("use-rl",&useRL,args);
         if(useRL==0){

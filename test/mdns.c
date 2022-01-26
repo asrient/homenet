@@ -113,7 +113,7 @@ int main(int argc, char *argv[])
             dns_print_result((dns_query_t *)resp);
             printf("-----------------------\n");
         }
-        //sendQuery();
+        sendQuery();
         printf("sleeping..\n");
         sleep(5);
     }

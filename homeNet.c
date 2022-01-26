@@ -26,6 +26,7 @@ int verifyAuthResp(char* buff, char* nonce, char* key, char* salt);
 int generateAuthChallenge(char* out, char* nonceOut);
 int authThrowChallenge(char* buff, Socket* sock, Map* keyStore);
 int authSolve(char* buff,Socket* sock, char* key, char* salt, char* password);
+int connect_authRequired(char* connUrl, hn_Config* conf);
 
 // Protocol message
 int hn_sendMsg(Socket* sock, char* buff);
@@ -419,8 +420,9 @@ if(!first){
 }
 int pStartInd=charIndex(first,0,-1,'#');
 char password[10]="";
+char passwordNext[10]="";
 if(pStartInd>0){
-    str_substring(password,first,pStartInd+1,-1);
+    str_substring(passwordNext,first,pStartInd+1,-1);
     str_substring(connId,first,0,pStartInd-1);
     //printf("Password found in url %s\n",password);
 }
@@ -509,18 +511,19 @@ do{
     */
    // Setup the next part of url to process
     first=strtok_r(NULL, "/", &saveptr1);
+    str_set(password,passwordNext);
     if(!first){
         printf("[Connect] No next part in url, done.\n");
         break;
     }
     pStartInd=charIndex(first,0,-1,'#');
     if(pStartInd>0){
-        str_substring(password,first,pStartInd+1,-1);
+        str_substring(passwordNext,first,pStartInd+1,-1);
         str_substring(connId,first,0,pStartInd-1);
     }
     else{
         str_set(connId,first);
-        str_set(password,"");
+        str_set(passwordNext,"");
     }
     printf("[Connect] loop connId: %s, password: %s\n",connId,password);
     // Now ask the peer to connect to the next url part
@@ -747,17 +750,22 @@ if(str_len(conf->bridge->rlUrl)){
 }
 //setup mdns socket too
 //Todo: add support to optionaly not use mdns
-Socket* mdnsSock=malloc(sizeof(Socket));
-if(!mdns_start(mdnsSock)){
-    printf("Failed to start mDNS\n");
-    return 0;
+if(conf->bridge->useMdns){
+    Socket* mdnsSock=malloc(sizeof(Socket));
+    if(!mdns_start(mdnsSock)){
+        printf("Failed to start mDNS\n");
+        return 0;
+    }
+    printf("mDNS started.\n");
+    sendMdnsQuery("bridge.hn.local");
+    hn_Socket* mdnsHnSock=malloc(sizeof(hn_Socket));
+    hn_sockInit(mdnsHnSock,mdnsSock,SOCK_MODE_MDNS);
+    sock_setNonBlocking(mdnsSock);
+    list_add(&sockList,mdnsSock);
 }
-printf("mDNS started.\n");
-sendMdnsQuery("bridge.hn.local");
-hn_Socket* mdnsHnSock=malloc(sizeof(hn_Socket));
-hn_sockInit(mdnsHnSock,mdnsSock,SOCK_MODE_MDNS);
-sock_setNonBlocking(mdnsSock);
-list_add(&sockList,mdnsSock);
+else{
+    printf("Not starting mDNS\n");
+}
 hn_loop(&sockList,conf);
 return 1;
 }
@@ -950,6 +958,38 @@ int createRelay(Socket** sockNext, Socket* sock, char* connUrl, BridgeContext* c
     }
 }
 
+int connect_authRequired(char* connUrl, hn_Config* conf){
+if(conf->mode!=HN_MODE_BRIDGE){
+    // only need to check for bridge mode
+    return 0;
+}
+if(conf->bridge->connectAuthLevel==AUTH_LEVEL_NONE){
+    // no auth required
+    return 0;
+}
+if(conf->bridge->connectAuthLevel==AUTH_LEVEL_ALL){
+    // no auth required
+    return 1;
+}
+printf("checking if '%s' is an ip address to require auth\n",connUrl);
+char url[str_len(connUrl)+10];
+str_set(url,connUrl);
+char* urlPtr=url;
+// remove the protocol string if there
+if(str_startswith(url,"hn://")){
+    urlPtr=urlPtr+5;
+}
+char *saveptr1;
+char* first=strtok_r(urlPtr, "/", &saveptr1);
+char* connId=strtok_r(first, "#", &saveptr1);
+printf("connId to check for ip: %s\n",connId);
+struct sockaddr_in ipAddr;
+bzero(&ipAddr,sizeof(struct sockaddr_in));
+int r = str_toIpAddr((struct sockaddr*)&ipAddr, connId);
+printf("is '%s' an ip address: %d\n",connId,r);
+return r;
+}
+
 int handleNew(Socket* sock, hn_Config* conf, List* sockList){
     //the sock is not added to the list yet, its safe to free it if not required
     //Add the sock to the list if you want to keep getting events from it
@@ -979,11 +1019,25 @@ int handleNew(Socket* sock, hn_Config* conf, List* sockList){
         if(str_startswith(buff,"HN1.0/CONNECT ")){
             char *saveptr;
             char* txt = strtok_r(buff, " ", &saveptr);
-            char* connUrl = strtok_r(NULL, " ", &saveptr);
-            if(!connUrl){
+            char* connUrlPtr = strtok_r(NULL, " ", &saveptr);
+            if(!connUrlPtr){
                 printf("Could not extract connUrl from message\n");
                 sock_destroy(sock,NULL);
                 return 0;
+            }
+            char connUrl[str_len(connUrlPtr)+5];
+            str_set(connUrl,connUrlPtr);
+            // check if auth is required according to config
+            // if required throw auth challenge
+            int authRequired=connect_authRequired(connUrl,conf);
+            if(authRequired){
+                printf("Auth required for connection: %s\n",connUrl);
+                int authSuccess=authThrowChallenge(buff,sock,&(conf->bridge->context.queryKeys));
+                if(!authSuccess){
+                printf("Auth verification failed for CONNECT\n");
+                sock_destroy(sock,NULL);
+                return 0;
+                }
             }
             Socket* nextSock=NULL;
             int r=createRelay(&nextSock,sock,connUrl,&(conf->bridge->context));
@@ -1012,7 +1066,7 @@ int handleNew(Socket* sock, hn_Config* conf, List* sockList){
         else if(str_startswith(buff,"HN1.0/LISTEN_NOTIFY")){
             // Check if listenId is received
             // if listenId is received and exists in listenKeys, authenticate it
-            //if not received, create one
+            //if not received, create one (if auth is not required)
             //create corresponding hnSock and init it for LISTEN mode
             //add hnsock to listeners of context
             //send back listenId
@@ -1039,9 +1093,16 @@ int handleNew(Socket* sock, hn_Config* conf, List* sockList){
                 }
                 printf("Authenticated listener\n");
             }
-            else{
+            else if(!conf->bridge->requireRLAuth){
+                printf("RL auth not required, generating random listenId\n");
                 generateCode(listenId,10);
                 printf("Generated new listenId: %s\n",listenId);
+            }
+            else{
+                // Anonymous listeners are disabled, stopping here
+                printf("RL auth was required, but no salt found for listenId: %s\n",listenId);
+                sock_destroy(sock,NULL);
+                return 0;
             }
             hn_Socket* hnSock=malloc(sizeof(hn_Socket));
             hn_sockInit(hnSock,sock,SOCK_MODE_LISTEN);
@@ -1101,7 +1162,7 @@ int handleNew(Socket* sock, hn_Config* conf, List* sockList){
             //close socket, this will not hit the loop
             // should be in format: HN1.0/QUERY <service name>
             // might return multiple records
-            // base query of ".hn.local" is not allowed
+            // base query of ".hn.local" is not allowed (todo)
             printf("got a query request: %s\n",buff);
             char *saveptr;
             char* txt = strtok_r(buff, " ", &saveptr);
@@ -1109,11 +1170,17 @@ int handleNew(Socket* sock, hn_Config* conf, List* sockList){
             char name[str_len(namePtr)+1];
             str_set(name,namePtr);
             printf("query for: %s\n",name);
-            int authResult=authThrowChallenge(buff,sock,&(conf->bridge->context.queryKeys));
-            if(!authResult){
-                printf("Could not authenticate query sock\n");
-                sock_destroy(sock,NULL);
-                return 0;
+            // check if auth is required, if so authenticate or else skip
+            if(conf->bridge->requireQueryAuth){
+                int authResult=authThrowChallenge(buff,sock,&(conf->bridge->context.queryKeys));
+                if(!authResult){
+                    printf("Could not authenticate query sock\n");
+                    sock_destroy(sock,NULL);
+                    return 0;
+                }
+            }
+            else{
+                printf("Query authentication not required\n");
             }
             Item* items[10];
             int n=getMdnsRecordsForName(items,10,name,&(conf->bridge->context.mdnsStore));
@@ -1255,7 +1322,10 @@ int handleRead(Socket* sock, hn_Config* conf, List* sockList){
     else if(hnSock->mode==SOCK_MODE_MDNS){
         // handle the mdns socket, will only be used in bridge mode
         printf("got read from mdns socket\n");
+        if(conf->bridge->useMdns)
         handleMdnsRead(sock,conf);
+        else
+        printf("Warning: mdns is not enabled\n");
     }
     else{
         // Need to pull out read data or else we keep getting the same event
@@ -1303,7 +1373,7 @@ void houseKeeping(hn_Config* conf){
     if(conf->mode==HN_MODE_BRIDGE){
         BridgeContext* context=&(conf->bridge->context);
         // updating the last refresh time
-        if((time(NULL)-context->mdnsLastRefresh)>=REFRESH_INTERVAL_SECS){
+        if(conf->bridge->useMdns&&((time(NULL)-context->mdnsLastRefresh)>=REFRESH_INTERVAL_SECS)){
             printf("Refreshing mdns records\n");
             context->mdnsLastRefresh=time(NULL);
             // send mdns query

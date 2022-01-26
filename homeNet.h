@@ -17,7 +17,7 @@
 #define MDNS_QUERY "hn.local"
 
 // Fix: Change this acc to platforms
-#define CONFIG_PATH "conf.ini"
+#define CONFIG_PATH "homenet.conf"
 
 struct MdnsRecord{
 struct sockaddr_in ip;
@@ -46,11 +46,19 @@ typedef struct BridgeContext BridgeContext;
 #define HN_MODE_REVERSE_LISTEN 4 // listen for conns from a bridge and forward them to a particular local ip
 #define HN_MODE_LISTEN 5 // listen for conns locally and forward to to a particular hn url
 
+#define AUTH_LEVEL_NONE 0
+#define AUTH_LEVEL_LOCAL_IP 1
+#define AUTH_LEVEL_ALL 2
+
 struct bridgeMode {
         int port; // if 0, system will set one, -1 means dont listen on localhost
         char rlId[50]; // if NULL, system will set one
         char rlUrl[MAX_URL_SIZE];
         char rlPass[10];
+        int useMdns; //todo //default: true
+        int connectAuthLevel; //todo // default: NONE
+        int requireQueryAuth; //todo //default: true
+        int requireRLAuth; //todo //default: false
         BridgeContext context;
 };
 
