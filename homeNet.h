@@ -16,6 +16,8 @@
 
 #define BROADCAST_MIN_INTERVAL_SECS 3
 
+#define PING_INTERVAL_SECS 4
+
 #define MDNS_QUERY "hn.local"
 
 // Fix: Change this acc to platforms
@@ -39,6 +41,10 @@ Map listeningSocks; //type: hn_Socket
 Map mdnsStore;
 time_t mdnsLastRefresh;
 time_t lastMdnsBroadcast;
+Socket* rlSock;
+int rlRetries;
+time_t rlLastRetry;
+time_t rlLastPing;
 };
 
 typedef struct BridgeContext BridgeContext;
@@ -58,10 +64,10 @@ struct bridgeMode {
         char rlId[50]; // if NULL, system will set one
         char rlUrl[MAX_URL_SIZE];
         char rlPass[10];
-        int useMdns; //todo //default: true
-        int connectAuthLevel; //todo // default: NONE
-        int requireQueryAuth; //todo //default: true
-        int requireRLAuth; //todo //default: false
+        int useMdns; //default: true
+        int connectAuthLevel; // default: NONE
+        int requireQueryAuth; //default: true
+        int requireRLAuth; //default: false
         BridgeContext context;
 };
 

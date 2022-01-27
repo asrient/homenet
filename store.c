@@ -112,6 +112,10 @@ void bridgeContextInit(BridgeContext* context){
     map_init(&(context->mdnsStore));
     context->mdnsLastRefresh=0;
     context->lastMdnsBroadcast=0;
+    context->rlSock=NULL;
+    context->rlLastPing=0;
+    context->rlLastRetry=0;
+    context->rlRetries=0;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////

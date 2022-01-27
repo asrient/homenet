@@ -17,6 +17,7 @@
 // General
 int charIndex(char* str,int start, int stop, char c);
 void textInput(char* buff, int max);
+time_t getNextRetry(int retryCount, time_t lastRetry);
 
 // Auth
 int generateAuthResp(char* buff, char* nonce, char* key, char* salt);
@@ -39,6 +40,7 @@ int initializeConnect(char* constUrl, Socket* sock, hn_Socket* waitingHnSock, Br
 int initializeListenNotify(char* listenId, char* salt, char* url, Socket* sock);
 int initializeListenConn(char* listenId, char* otp, char* url, Socket* sock);
 int initializeQuery(Map recs[], int max, char* name, char* url, char* pass, Socket* sock);
+Socket* tryRLStart(hn_Config *conf);
 
 // Start program in various modes
 int start_bridge(hn_Config *conf);
@@ -51,7 +53,7 @@ int handleRead(Socket* sock, hn_Config* conf, List* sockList);
 int handleClose(Socket* sock, hn_Config* conf, List* sockList);
 int processEvent(Socket* sock, int event, List* sockList, hn_Config* conf);
 int hn_loop(List* sockList, hn_Config* conf);
-void houseKeeping(hn_Config* conf);
+void houseKeeping(hn_Config* conf, List* sockList);
 
 // HNSocket Utilities
 void hn_sockInit(hn_Socket* hnSock, Socket* sock, int mode);
@@ -302,6 +304,11 @@ void hn_sockCleanup(hn_Socket* hnSock, BridgeContext* context){
         //remove the socket from context listeningSocks
         if(context){
             map_del(&(context->listeningSocks),hnSock->listen.listenId,0);
+        }
+    }
+    else if(hnSock->mode==SOCK_MODE_LISTEN_OUT){
+        if(context){
+            context->rlSock=NULL;
         }
     }
     else{
@@ -702,6 +709,62 @@ int initializeQuery(Map recs[], int max, char* name, char* url, char* pass, Sock
 
 ///////////////////////////////////////////////////////////////////////////////////
 
+time_t getNextRetry(int retryCount, time_t lastRetry){
+    // Provides a time in the future to retry a connection
+    // implements a stratergy where next retry time increases with no of previous retries
+    // for first 2 times, retry immediately
+    // 3-5 times, retry in 1 minute
+    // 6-10 times, retry in 5 minutes
+    // more than 10, retry every 30 mins
+    if(retryCount<2){
+    return lastRetry;
+    }
+    if(retryCount<5){
+    return lastRetry+60;
+    }
+    if(retryCount<10){
+    return lastRetry+60*5;
+    }
+    return lastRetry+60*30;
+}
+
+Socket* tryRLStart(hn_Config *conf){
+// Note: works only for bridge
+//check if context has rlSocket set
+//if not set check retriesCount lastRetry and determine if retry is needed
+// if retry is needed, start rl and reset retriesCount and lastRetry 
+BridgeContext* context=&(conf->bridge->context);
+if(context->rlSock){
+    printf("RL socket already initialized\n");
+    return context->rlSock;
+}
+// check if rl is enabled
+if(str_len(conf->bridge->rlUrl)){
+    // start a listener to this url
+    // check if its a valid time to retry
+    if(time(NULL)<getNextRetry(context->rlRetries,context->rlLastRetry)){
+        printf("Retry in %d seconds\n",(int)(getNextRetry(context->rlRetries,context->rlLastRetry)-time(NULL)));
+        return NULL;
+    }
+    // retry
+    context->rlLastRetry=time(NULL);
+    Socket* rlSock=createTcpSocket();
+    hn_Socket* rlHnSock=malloc(sizeof(hn_Socket));
+    hn_sockInit(rlHnSock,rlSock,SOCK_MODE_LISTEN_OUT);
+    if(!initializeListenNotify(conf->bridge->rlId,conf->bridge->rlPass,conf->bridge->rlUrl,rlSock)){
+        printf("Could not initialize remote listener\n");
+        // increase the retries count
+        context->rlRetries++;
+        return NULL;
+    }
+    // connection success, reset the retries vars
+    context->rlRetries=0;
+    context->rlSock=rlSock;
+    return rlSock;
+}
+return NULL;
+}
+
 int start_bridge(hn_Config *conf){
     List sockList;
     list_init(&sockList);
@@ -736,17 +799,16 @@ if(conf->bridge->port>=0){
 else{
     printf("Not starting up local server\n");
 }
-if(str_len(conf->bridge->rlUrl)){
-    // start a listener to this url
-    Socket* rlSock=createTcpSocket();
-    hn_Socket* rlHnSock=malloc(sizeof(hn_Socket));
-    hn_sockInit(rlHnSock,rlSock,SOCK_MODE_LISTEN_OUT);
-    if(!initializeListenNotify(conf->bridge->rlId,conf->bridge->rlPass,conf->bridge->rlUrl,rlSock)){
-        printf("Could not initialize remote listener\n");
-        return 0;
-    }
+Socket* rlSock=tryRLStart(conf);
+if(rlSock){
     sock_setNonBlocking(rlSock);
     list_add(&sockList,rlSock);
+}
+else if(str_len(conf->bridge->rlUrl)){
+    // RL is enabled but could not start
+    // If we are not able to connect even for the first time, we terminate
+    printf("Could not start remote listener\n");
+    return 0;
 }
 //setup mdns socket too
 //Todo: add support to optionaly not use mdns
@@ -1274,6 +1336,11 @@ int handleRead(Socket* sock, hn_Config* conf, List* sockList){
             printf("Could not read from socket\n");
             return 0;
         }
+        // message could either be listen_opt or pong
+        if(str_startswith(buff,"PONG")){
+            printf("Received a pong from listen_out socket\n");
+            return 1;
+        }
         if(!str_startswith(buff,"LISTEN_OTP ")){
             printf("Received message is not an listen otp\n");
             return 0;
@@ -1319,6 +1386,27 @@ int handleRead(Socket* sock, hn_Config* conf, List* sockList){
             }
         }
     }
+    else if(hnSock->mode==SOCK_MODE_LISTEN){
+        printf("Read: Socket is in LISTEN mode\n");
+        // must be a ping
+        // reply pong in response if so
+        // This socket is maily used to send opts to notify new connections, nothing important to read
+        char buff[BUFF_SIZE]="";
+        int read=hn_receiveMsg(buff,BUFF_SIZE,sock);
+        if(read<=0){
+            printf("Could not read from socket\n");
+            return 0;
+        }
+        if(str_startswith(buff,"PING")){
+            printf("Received a ping from a listen socket\n");
+            str_reset(buff,BUFF_SIZE);
+            str_set(buff,"PONG");
+            hn_sendMsg(sock,buff);
+            return 1;
+        }
+        printf("Received message is not a ping: %s\n",buff);
+        return 0;
+    }
     else if(hnSock->mode==SOCK_MODE_MDNS){
         // handle the mdns socket, will only be used in bridge mode
         printf("got read from mdns socket\n");
@@ -1342,7 +1430,6 @@ int handleClose(Socket* sock, hn_Config* conf, List* sockList){
     if(conf->mode==HN_MODE_BRIDGE){
         context=&(conf->bridge->context);
     }
-
     if(sock->ptr){
         hn_Socket* hnSock=(hn_Socket*)sock->ptr;
         if(hnSock->mode==SOCK_MODE_RELAY||hnSock->mode==SOCK_MODE_LISTEN){
@@ -1350,8 +1437,21 @@ int handleClose(Socket* sock, hn_Config* conf, List* sockList){
         }
         else if(hnSock->mode==SOCK_MODE_LISTEN_OUT){
             //this is a terminating event, either restart or exit application
-            printf("[Close] Got close event from server socket. Shutting down..\n");
-            exit(1);
+            printf("[Close] Got close event from listen_out socket. ");
+            // first check which mode it is running in
+            if(context){
+                // its in bridge mode, we retry
+                // We reset the context vars and let the housekeeping handle reconnect
+                printf("Will retry...\n");
+                context->rlSock=NULL;
+                context->rlRetries=0;
+            }
+            else{
+                // it must be in RL mode, exit the application since without thr rl listen the prog has no utility
+                // we might decide to implement the retry strategy in future
+                printf("Shutting down..\n");
+                exit(1);
+            }
         }
         else if(hnSock->mode==SOCK_MODE_MDNS){
             //this is a terminating event, either restart or exit application
@@ -1365,8 +1465,9 @@ int handleClose(Socket* sock, hn_Config* conf, List* sockList){
     return 1;
 }
 
-void houseKeeping(hn_Config* conf){
-    //send ping to rl_out socket (todo)
+void houseKeeping(hn_Config* conf, List* sockList){
+    //send ping to rl_out socket
+    // reconnect rl sock if necessary
     //query mdns
     //remove very old mdns recs that are not updated recently (todo)
     //health check listeningSocks (todo)
@@ -1378,6 +1479,24 @@ void houseKeeping(hn_Config* conf){
             context->mdnsLastRefresh=time(NULL);
             // send mdns query
             sendMdnsQuery(MDNS_QUERY);
+        }
+        if((!context->rlSock)&&(str_len(conf->bridge->rlUrl)>1)){
+            // rl sock is closed but rl is enabled, retry
+            printf("retrying rl connection..\n");
+            Socket* rlSock = tryRLStart(conf);
+            if(rlSock){
+                printf("RL retry successful\n");
+                sock_setNonBlocking(rlSock);
+                list_add(sockList,rlSock);
+            }
+        }
+        if(context->rlSock&&((time(NULL)-context->rlLastPing)>=PING_INTERVAL_SECS)){
+            // send ping to rl_out socket
+            printf("Sending ping to rl_out socket..\n");
+            char buff[BUFF_SIZE]="";
+            str_set(buff,"PING");
+            hn_sendMsg(context->rlSock,buff);
+            context->rlLastPing=time(NULL);
         }
     }
 }
@@ -1419,7 +1538,7 @@ if(event==SOCK_EVENT_TIMEOUT){
     continue;
 }
 processEvent(selSock, event, sockList, conf);
-houseKeeping(conf);
+houseKeeping(conf, sockList);
 }
 while(1);
 return 0;
