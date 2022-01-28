@@ -125,6 +125,7 @@ hn//example.com/f45f#a01:1234  (abc3f is not a part of the address)
 struct hn_Socket{
 Socket* sock;
 int mode;
+int isUpgraded;
 //TODO: ssl stack
 struct relay{
 Socket *next;

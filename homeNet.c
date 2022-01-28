@@ -5,6 +5,7 @@
 #include <arpa/inet.h>
 #include "utils.h"
 #include "netUtils.h"
+#include "httpUtils.h"
 #include "homeNet.h"
 #include "sha/sha2.h"
 #include <uuid/uuid.h> // will work on mac and linux
@@ -56,7 +57,7 @@ int hn_loop(List* sockList, hn_Config* conf);
 void houseKeeping(hn_Config* conf, List* sockList);
 
 // HNSocket Utilities
-void hn_sockInit(hn_Socket* hnSock, Socket* sock, int mode);
+void hn_sockInit(hn_Socket* hnSock, Socket* sock, int mode, int isUpgraded);
 void hn_sockCleanup(hn_Socket* hnSock, BridgeContext* context);
 void sock_readDump(Socket* sock);
 Socket* createTcpSocket();
@@ -232,6 +233,18 @@ return -1;
 /////////////////////////////////////////////////////////////////////////////////////////
 
 int hn_sendMsg(Socket* sock, char* buff){
+// if not upgraded before, first upgrade and there is still a next part, first upgrade
+hn_Socket* hnSock=(hn_Socket*)sock->ptr;
+if(hnSock&&(!hnSock->isUpgraded)){
+     // Hack: Fake Upgrade websocket
+     printf("upgrading before sending protocol msg\n");
+    int upgraded=upgradeHttpClient(sock);
+    if(!upgraded){
+        printf("Could not upgrade websockets\n");
+        return 0;
+    }
+    hnSock->isUpgraded=1;
+}
 str_concat(buff,HN_MSG_END);
 printf("[hn_sendMsg] Sending: %s\n",buff);
 return sock_write(sock,buff,str_len(buff));
@@ -240,7 +253,7 @@ return sock_write(sock,buff,str_len(buff));
 int hn_receiveMsg(char* buff, int max, Socket* sock){
 str_reset(buff,BUFF_SIZE);
 int totalRead=0;
-while (!str_endswith(buff,HN_MSG_END)&&totalRead<max){
+while ((!str_endswith(buff,HN_MSG_END))&&(totalRead<max)){
     int read=sock_read(buff+totalRead,max-totalRead,sock);
     if(read==0){
         printf("Connection closed\n");
@@ -267,13 +280,14 @@ return totalRead;
 
 /////////////////////////////////////////////////////////////////////////////////////////
 
-void hn_sockInit(hn_Socket* hnSock, Socket* sock, int mode){
+void hn_sockInit(hn_Socket* hnSock, Socket* sock, int mode, int isUpgraded){
 bzero(hnSock,sizeof(hn_Socket));
 hnSock->sock=sock;
 sock->ptr=hnSock;
 hnSock->mode=mode;
 map_init(&(hnSock->listen.waitingSocks));
 hnSock->relay.next=NULL;
+hnSock->isUpgraded=isUpgraded;
 }
 
 void hn_sockCleanup(hn_Socket* hnSock, BridgeContext* context){
@@ -750,7 +764,7 @@ if(str_len(conf->bridge->rlUrl)){
     context->rlLastRetry=time(NULL);
     Socket* rlSock=createTcpSocket();
     hn_Socket* rlHnSock=malloc(sizeof(hn_Socket));
-    hn_sockInit(rlHnSock,rlSock,SOCK_MODE_LISTEN_OUT);
+    hn_sockInit(rlHnSock,rlSock,SOCK_MODE_LISTEN_OUT,0);
     if(!initializeListenNotify(conf->bridge->rlId,conf->bridge->rlPass,conf->bridge->rlUrl,rlSock)){
         printf("Could not initialize remote listener\n");
         // increase the retries count
@@ -821,7 +835,7 @@ if(conf->bridge->useMdns){
     printf("mDNS started.\n");
     sendMdnsQuery("bridge.hn.local");
     hn_Socket* mdnsHnSock=malloc(sizeof(hn_Socket));
-    hn_sockInit(mdnsHnSock,mdnsSock,SOCK_MODE_MDNS);
+    hn_sockInit(mdnsHnSock,mdnsSock,SOCK_MODE_MDNS,1);
     sock_setNonBlocking(mdnsSock);
     list_add(&sockList,mdnsSock);
 }
@@ -913,7 +927,7 @@ int start_reverseListen(hn_Config *conf){
     // start a listener to this url
     Socket* rlSock=createTcpSocket();
     hn_Socket* rlHnSock=malloc(sizeof(hn_Socket));
-    hn_sockInit(rlHnSock,rlSock,SOCK_MODE_LISTEN_OUT);
+    hn_sockInit(rlHnSock,rlSock,SOCK_MODE_LISTEN_OUT,0);
     if(!initializeListenNotify(conf->rl->rlId,conf->rl->rlPass,conf->rl->rlUrl,rlSock)){
         printf("Could not initialize remote listener\n");
         return 0;
@@ -982,10 +996,10 @@ int createRelay(Socket** sockNext, Socket* sock, char* connUrl, BridgeContext* c
     // setup relay links
     *sockNext=NULL;
     hn_Socket* hnSock=malloc(sizeof(hn_Socket));
-    hn_sockInit(hnSock,sock,SOCK_MODE_RELAY);
+    hn_sockInit(hnSock,sock,SOCK_MODE_RELAY,1);
     Socket* nextSock=createTcpSocket();
     hn_Socket* hnSockNext=malloc(sizeof(hn_Socket));
-    hn_sockInit(hnSockNext,nextSock,SOCK_MODE_RELAY);
+    hn_sockInit(hnSockNext,nextSock,SOCK_MODE_RELAY,0);
     if(!nextSock->ptr){
         printf("WARNING: hnsock did not get linked with nextSock\n");
         printf("is allocated hnSockNext: %d, nextSock: %d\n",hnSockNext!=NULL,nextSock!=NULL);
@@ -1055,10 +1069,15 @@ return r;
 int handleNew(Socket* sock, hn_Config* conf, List* sockList){
     //the sock is not added to the list yet, its safe to free it if not required
     //Add the sock to the list if you want to keep getting events from it
+    // {isRecall} is used to make sure we don't keep receiving same ws upgrade request
+    // since we are using recursion there someone might keep sending the upgrade request and it will cause an infinite loop and block the event loop
+    // Its a woraround to make sure we only handle the updrade request once
+    static int isRecall=0;
     printf("Handling Socket NEW event, fd: %d\n",sock->fd);
     if(conf->mode==HN_MODE_LISTEN){
          // Create a new socket and connect it accourding to the url in config
          // setup the relay links
+        isRecall=0;
         Socket* nextSock=NULL;
         int r=createRelay(&nextSock,sock,conf->listen->connectUrl,NULL);
         if(r!=1||!nextSock){
@@ -1079,6 +1098,7 @@ int handleNew(Socket* sock, hn_Config* conf, List* sockList){
         char buff[BUFF_SIZE]="";
         int read=hn_receiveMsg(buff,BUFF_SIZE,sock);
         if(str_startswith(buff,"HN1.0/CONNECT ")){
+            isRecall=0;
             char *saveptr;
             char* txt = strtok_r(buff, " ", &saveptr);
             char* connUrlPtr = strtok_r(NULL, " ", &saveptr);
@@ -1132,6 +1152,7 @@ int handleNew(Socket* sock, hn_Config* conf, List* sockList){
             //create corresponding hnSock and init it for LISTEN mode
             //add hnsock to listeners of context
             //send back listenId
+            isRecall=0;
             char *saveptr;
             char* txt = strtok_r(buff, " ", &saveptr);
             char* id = strtok_r(NULL, " ", &saveptr);
@@ -1167,7 +1188,7 @@ int handleNew(Socket* sock, hn_Config* conf, List* sockList){
                 return 0;
             }
             hn_Socket* hnSock=malloc(sizeof(hn_Socket));
-            hn_sockInit(hnSock,sock,SOCK_MODE_LISTEN);
+            hn_sockInit(hnSock,sock,SOCK_MODE_LISTEN,1);
             str_set(hnSock->listen.listenId,listenId);
             map_set(&(conf->bridge->context.listeningSocks),listenId,hnSock,0);
             str_reset(buff,BUFF_SIZE);
@@ -1182,6 +1203,7 @@ int handleNew(Socket* sock, hn_Config* conf, List* sockList){
             //remove socket from waiting list
             // setup relay
             // send back connected ack to both sockets
+            isRecall=0;
             char *saveptr;
             char* txt = strtok_r(buff, " ", &saveptr);
             char* listenId = strtok_r(NULL, " ", &saveptr);
@@ -1200,7 +1222,7 @@ int handleNew(Socket* sock, hn_Config* conf, List* sockList){
                 removeWaitingSocket(&conf->bridge->context,listenId, otp);
                 //create a hnsock for the socket
                 hn_Socket* hnSock=malloc(sizeof(hn_Socket));
-                hn_sockInit(hnSock,sock,SOCK_MODE_RELAY);
+                hn_sockInit(hnSock,sock,SOCK_MODE_RELAY,1);
                 // setup relay
                 hnSock->relay.next=nextHnsock->sock;
                 hnSock->relay.isWaiting=0;
@@ -1225,6 +1247,7 @@ int handleNew(Socket* sock, hn_Config* conf, List* sockList){
             // should be in format: HN1.0/QUERY <service name>
             // might return multiple records
             // base query of ".hn.local" is not allowed (todo)
+            isRecall=0;
             printf("got a query request: %s\n",buff);
             char *saveptr;
             char* txt = strtok_r(buff, " ", &saveptr);
@@ -1266,10 +1289,44 @@ int handleNew(Socket* sock, hn_Config* conf, List* sockList){
         }
         else{
             // It is possibly a HTTP request
-            // Write a welcome message for our browser friends
-            printf("Unknown command from new socket: %s\n",buff);
-            str_set(buff,HTTP_TEXT);
-            sock_write(sock,buff,str_len(buff));
+            // Hack: Sometimes we might receive an HTTP upgrade request which looks like a standard websocket handshake request
+            // If received we send a dummy "HTTP 101 upgraded" response and then read the actual request
+            // This step though not part of the protocol and is optional might be helpful when the bridge is hosted behind a proxy
+            // Which blocks anything other than http and websockets. This fools the proxy server into thinking its a websocket coneection
+            // This step is required for services like Heroku that runs behind a http proxy
+            HttpRequest req;
+            int isHttp=parseHttpRequest(&req,buff,str_len(buff));
+            // do not reset the buffer
+            if(isHttp){
+                if(map_get(&(req.headers),"Upgrade")&&!isRecall){
+                    if(str_isEqual(map_get(&(req.headers),"Upgrade"),"websocket")){
+                        printf("got a websocket upgrade request\n");
+                        // now we reset the buffer as the http req is no longer needed
+                        map_cleanup(&(req.headers),0);
+                        str_reset(buff,BUFF_SIZE);
+                        int n=writeUpgradeResponse(buff);
+                        sock_write(sock,buff,str_len(buff));
+                        // now we handle the actual message
+                        isRecall=1;
+                        return handleNew(sock, conf, sockList);
+                    }
+                    else{
+                        printf("Unknown upgrade type: %s\n",map_get(&(req.headers),"Upgrade"));
+                    }
+                }
+                // Write a welcome message for our browser friends
+                printf("its a normal http request\n");
+                str_set(buff,HTTP_TEXT);
+                sock_write(sock,buff,str_len(buff));
+            }
+            else{
+                printf("Unknown command from new socket: %s\n",buff);
+                str_reset(buff,BUFF_SIZE);
+                str_set(buff,"BAD_REQUEST");
+                hn_sendMsg(sock,buff);
+            }
+            isRecall=0;
+            map_cleanup(&(req.headers),0);
             sock_destroy(sock,NULL);
             return 0;
         }

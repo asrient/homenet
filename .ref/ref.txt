@@ -6,5 +6,18 @@ cc test/mdns.c utils.c netUtils.c dns/codec.c dns/output.c dns/mappings.c
 cc utils.c netUtils.c store.c homeNet.c cli.c sha/sha2.c
 
 # All 
+cc utils.c netUtils.c store.c homeNet.c cli.c sha/sha2.c dns/codec.c dns/mappings.c dns/output.c httpUtils.c -o homenet
 
-cc utils.c netUtils.c store.c homeNet.c cli.c sha/sha2.c dns/codec.c dns/mappings.c dns/output.c -o homenet
+# Sample cli args
+
+### Start bridge without mdns service
+./homenet b -mdns false
+
+### Start in RL mode remote listening at the bridge localhost:6969 and forwarding all requests to fb.com
+./homenet rl -url "localhost:6969" -ip "fb.com"
+
+### Start bridge at port 3000 and use rl too with bridge url: localhost:6969
+./homenet b -rl true -url "localhost:6969" -p 3000
+
+### Connect to google.com server via the chain of bridges as mentioned in url
+./homenet c -url "localhost:6969/cherry01/google.com"
