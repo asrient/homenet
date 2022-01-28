@@ -11,7 +11,7 @@
 #include <netdb.h>
 #include <net/if.h>
 #include <sys/ioctl.h>
-#include <sys/sockio.h>
+#include <sys/select.h>
 #include <unistd.h>
 #include "utils.h"
 #include "netUtils.h"
@@ -438,8 +438,8 @@ int createTcpServer( Socket* sock, int port){
 int waitForEvent(Socket** selectedSock, List* socketList){
  static List* list;
     static int maxFd=0;
-    static struct fd_set readSet;
-    static struct fd_set writeSet;
+    static fd_set readSet;
+    static fd_set writeSet;
     static int fdsToProcess=0;
     static Socket* sockToRemove=NULL;
     struct timeval timeout;

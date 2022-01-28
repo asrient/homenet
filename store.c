@@ -1,6 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
-#include <strings.h>
+#include <string.h>
 #include "utils.h"
 #include "netUtils.h"
 #include "homeNet.h"

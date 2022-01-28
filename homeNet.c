@@ -8,7 +8,6 @@
 #include "httpUtils.h"
 #include "homeNet.h"
 #include "sha/sha2.h"
-#include <uuid/uuid.h> // will work on mac and linux
 #include <time.h>
 
 /****************************************************************************
@@ -84,14 +83,6 @@ char *generateCode(char* randomString,int length) {
         }
         randomString[length] = '\0';
         return randomString;        
-}
-
-int generateUUID(char *uuid) {
-    // uuid string should be 36 chars long min
-    uuid_t uuid_t;
-    uuid_generate_random(uuid_t);
-    uuid_unparse(uuid_t, uuid);
-    return 0;
 }
 
 void textInput(char* buff, int max) {
