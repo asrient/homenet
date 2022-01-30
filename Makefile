@@ -36,4 +36,4 @@ libdns.a: $(DNS_OBJ) $(DNS_DEPS)
 .PHONY: clean
 
 clean:
-	rm -f *.o $(OBJ) $(LIBS) homenet a.out
+	rm -f *.o $(OBJ) $(SHA_OBJ) $(DNS_OBJ) homenet a.out
