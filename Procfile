@@ -1,1 +1,1 @@
-web: homenet b -mdns false -rl false
+web: ./homenet b -mdns false -rl false
