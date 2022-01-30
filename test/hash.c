@@ -1,8 +1,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "../sha/sha2.h"
-#include "../utils.h"
+#include "../lib/sha/sha2.h"
+#include "../include/utils.h"
 
 int generateAuthResp(char* buff, char* nonce, char* key, char* salt){
 // Will generate a string of the form:

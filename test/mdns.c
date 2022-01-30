@@ -3,12 +3,12 @@
 #include <unistd.h>
 #include <string.h>
 #include <arpa/inet.h>
-#include "../utils.h"
-#include "../netUtils.h"
+#include "../include/utils.h"
+#include "../include/netUtils.h"
 
-#include "../dns/dns.h"
-#include "../dns/mappings.h"
-#include "../dns/output.h"
+#include "../lib/dns/dns.h"
+#include "../lib/dns/mappings.h"
+#include "../lib/dns/output.h"
 
 
 void createQuery(dns_packet_t* packet, size_t* size){

@@ -13,8 +13,8 @@
 #include <sys/ioctl.h>
 #include <sys/select.h>
 #include <unistd.h>
-#include "utils.h"
-#include "netUtils.h"
+#include "../include/utils.h"
+#include "../include/netUtils.h"
 
 /**
  * NOTE: The current implementation of netUtils mostly works well with ipv4 addresses.

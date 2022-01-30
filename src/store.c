@@ -1,12 +1,12 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "utils.h"
-#include "netUtils.h"
-#include "homeNet.h"
-#include "dns/dns.h"
-#include "dns/mappings.h"
-#include "dns/output.h"
+#include "../include/utils.h"
+#include "../include/netUtils.h"
+#include "../include/homeNet.h"
+#include "../lib/dns/dns.h"
+#include "../lib/dns/mappings.h"
+#include "../lib/dns/output.h"
 #include <time.h>
 
 #define DNS_BUFF 1024

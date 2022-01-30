@@ -4,9 +4,9 @@
 #include <string.h>
 #include <arpa/inet.h>
 #include <time.h>
-#include "utils.h"
-#include "netUtils.h"
-#include "httpUtils.h"
+#include "../include/utils.h"
+#include "../include/netUtils.h"
+#include "../include/httpUtils.h"
 
 
 int getBodyIndex(char* buff){

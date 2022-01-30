@@ -3,8 +3,8 @@
 #include <unistd.h>
 #include <string.h>
 #include <arpa/inet.h>
-#include "../utils.h"
-#include "../netUtils.h"
+#include "../include/utils.h"
+#include "../include/netUtils.h"
 
 void testStrToIp(){
     // TOFIX: "2001:db8:3333:4444:5555:6666:7777:8888" breaks `str_toIpAddr()`

@@ -3,11 +3,11 @@
 #include <unistd.h>
 #include <string.h>
 #include <arpa/inet.h>
-#include "utils.h"
-#include "netUtils.h"
-#include "httpUtils.h"
-#include "homeNet.h"
-#include "sha/sha2.h"
+#include "../include/utils.h"
+#include "../include/netUtils.h"
+#include "../include/httpUtils.h"
+#include "../include/homeNet.h"
+#include "../lib/sha/sha2.h"
 #include <time.h>
 
 /****************************************************************************

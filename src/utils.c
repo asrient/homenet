@@ -6,7 +6,7 @@
 #include <stdlib.h>
 #include <strings.h>
 #include <string.h>
-#include "utils.h"
+#include "../include/utils.h"
 
 
 int max(int x, int y)

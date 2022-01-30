@@ -3,8 +3,8 @@
 #include <unistd.h>
 #include <string.h>
 #include <arpa/inet.h>
-#include "../utils.h"
-#include "../netUtils.h"
+#include "../include/utils.h"
+#include "../include/netUtils.h"
 
 int processEvent(Socket* sock, int event, List* sockList){
 if(event==SOCK_EVENT_READ){

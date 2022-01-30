@@ -6,7 +6,7 @@ cc test/mdns.c utils.c netUtils.c dns/codec.c dns/output.c dns/mappings.c
 cc utils.c netUtils.c store.c homeNet.c cli.c sha/sha2.c
 
 # All 
-gcc utils.c netUtils.c store.c homeNet.c cli.c sha/sha2.c dns/codec.c dns/mappings.c dns/output.c httpUtils.c -o homenet -lm
+gcc src/utils.c src/netUtils.c src/store.c src/homeNet.c main.c lib/sha/sha2.c lib/dns/codec.c lib/dns/mappings.c lib/dns/output.c src/httpUtils.c -o homenet -lm
 
 # Sample cli args
 

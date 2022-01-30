@@ -3,9 +3,9 @@
 #include <unistd.h>
 #include <string.h>
 #include <arpa/inet.h>
-#include "utils.h"
-#include "netUtils.h"
-#include "homeNet.h"
+#include "include/utils.h"
+#include "include/netUtils.h"
+#include "include/homeNet.h"
 
 //
 int main(int argc, char *argv[]){
