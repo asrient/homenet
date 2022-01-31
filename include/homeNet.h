@@ -121,11 +121,13 @@ hn//example.com/f45f#a01:1234  (abc3f is not a part of the address)
 #define SOCK_MODE_LISTEN 2 //Should not be reading anything, used for notifying local listeners
 #define SOCK_MODE_MDNS 3
 #define SOCK_MODE_LISTEN_OUT 4
+#define SOCK_MODE_TEMP 5
 
 struct hn_Socket{
 Socket* sock;
 int mode;
 int isUpgraded;
+char host[200];
 //TODO: ssl stack
 struct relay{
 Socket *next;

@@ -229,7 +229,7 @@ hn_Socket* hnSock=(hn_Socket*)sock->ptr;
 if(hnSock&&(!hnSock->isUpgraded)){
      // Hack: Fake Upgrade websocket
      printf("upgrading before sending protocol msg\n");
-    int upgraded=upgradeHttpClient(sock);
+    int upgraded=upgradeHttpClient(sock, hnSock->host);
     if(!upgraded){
         printf("Could not upgrade websockets\n");
         return 0;
@@ -316,7 +316,7 @@ void hn_sockCleanup(hn_Socket* hnSock, BridgeContext* context){
             context->rlSock=NULL;
         }
     }
-    else{
+    else if(hnSock->mode!=SOCK_MODE_TEMP){
         printf("[HNSocket Cleanup] Error: Unsupported socket mode %d\n",hnSock->mode);
     }
     free(hnSock);
@@ -415,6 +415,10 @@ int initializeConnect(char* constUrl, Socket* sock, hn_Socket* waitingHnSock, Br
 // Set up a temp var string to hold the url, needed for str_split
 // todo: set sock_timeout if not set before
 char url[str_len(constUrl)+10];
+hn_Socket* hnSock=NULL;
+if(sock->ptr){
+    hnSock=(hn_Socket*)sock->ptr;
+}
 str_set(url,constUrl);
 str_removeSpaces(url);
 char* urlPtr=url;
@@ -506,6 +510,10 @@ else{
     printf("Could not get any ip address for %s\n",connId);
     return 0;
 } 
+if(hnSock){
+    // Set the host, required for http upgrades
+    str_set(hnSock->host,connId);
+}
 sock_setTimeout(sock,SOCK_TIMEOUT_SECS);
 
 do{
@@ -842,6 +850,9 @@ int start_connect(hn_Config *conf){
     //once connected, send the payload
     if(str_len(conf->connect->connectUrl)>1){
     Socket* sock=createTcpSocket();
+    // We create a hnSock for using the upgrade utility, no other puropses
+    hn_Socket* hnSock=malloc(sizeof(hn_Socket));
+    hn_sockInit(hnSock,sock,SOCK_MODE_RELAY,0);
     int r=initializeConnect(conf->connect->connectUrl,sock,NULL,NULL);
     if(r!=1){
         printf("Could not connect to url: %s\n",conf->connect->connectUrl);
@@ -1403,12 +1414,17 @@ int handleRead(Socket* sock, hn_Config* conf, List* sockList){
         printf("Receivied an OTP for remote new connection: %s\n",otp);
         //initialize the connection
         Socket* connSock=createTcpSocket();
+        // Create a temporary hnSock for upgrade
+        hn_Socket* tempHnSock=malloc(sizeof(hn_Socket));
+        hn_sockInit(tempHnSock,connSock,SOCK_MODE_TEMP,0);
         int r=initializeListenConn(hnSock->listen.listenId,otp,rlUrl,connSock);
         if(!r){
             printf("Could not initialize connection\n");
             sock_destroy(connSock,NULL);
             return 0;
         }
+        // Now clean up the temp hnSock
+        hn_sockCleanup(tempHnSock, NULL);
         if(conf->mode==HN_MODE_BRIDGE){
         //once connected, pass the socket to {handleNew}
         //the socket will be added to watchlist by {handleNew} itself

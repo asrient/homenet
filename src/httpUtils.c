@@ -164,10 +164,14 @@ int writeHttpRequest(char* buff,int buffSize, HttpRequest* req){
     return 1;
 }
 
-int upgradeHttpClient(Socket* sock){
+int upgradeHttpClient(Socket* sock, char* host){
     // send http upgrade request, wait for response
     char buff[DEFAULT_BUFFER_SIZE]="";
-    sprintf(buff,"GET / HTTP/1.1\r\nConnection: Upgrade\r\nUpgrade: websocket\r\nUpgrade-Insecure-Requests: 1\r\nSec-WebSocket-Key: x3JJHMbDL1EzLkh9GBhXDw==\r\n\r\n");
+    char hostHeader[300]="";
+    if(host && str_len(host)>0){
+        sprintf(hostHeader,"\r\nHost: %s",host);
+    }
+    sprintf(buff,"GET / HTTP/1.1\r\nConnection: Upgrade\r\nUpgrade: websocket\r\nUpgrade-Insecure-Requests: 1%s\r\n\r\n",hostHeader);
     sock_write(sock,buff,strlen(buff));
     str_reset(buff,DEFAULT_BUFFER_SIZE);
     sock_read(buff,DEFAULT_BUFFER_SIZE,sock);

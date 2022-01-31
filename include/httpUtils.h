@@ -33,6 +33,6 @@ int parseHttpRequest(HttpRequest* req, char* buffer, int max);
 int parseHttpResponse(HttpResponse* resp, char* buffer, int max);
 int writeHttpRequest(char* buff,int buffSize, HttpRequest* req);
 int writeUpgradeResponse(char* buff);
-int upgradeHttpClient(Socket* sock);
+int upgradeHttpClient(Socket* sock, char* host);
 
 #endif
