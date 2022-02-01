@@ -1,8 +1,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <time.h>
-#include "utils.h"
+
 #include "netUtils.h"
+#include "utils.h"
 
 #ifndef HN_HTTP_UTILS_H
 #define HN_HTTP_UTILS_H
@@ -11,7 +12,7 @@
 #define HTTP_POST 2
 #define HTTP_UNKNOWN 0
 
-struct HttpRequest{
+struct HttpRequest {
     Map headers;
     int method;
     char url[1024];
@@ -20,7 +21,7 @@ struct HttpRequest{
 
 typedef struct HttpRequest HttpRequest;
 
-struct HttpResponse{
+struct HttpResponse {
     int statusCode;
     char statusMessage[200];
     Map headers;
@@ -31,7 +32,7 @@ typedef struct HttpResponse HttpResponse;
 
 int parseHttpRequest(HttpRequest* req, char* buffer, int max);
 int parseHttpResponse(HttpResponse* resp, char* buffer, int max);
-int writeHttpRequest(char* buff,int buffSize, HttpRequest* req);
+int writeHttpRequest(char* buff, int buffSize, HttpRequest* req);
 int writeUpgradeResponse(char* buff);
 int upgradeHttpClient(Socket* sock, char* host);
 

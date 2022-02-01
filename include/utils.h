@@ -5,13 +5,13 @@ int max(int x, int y);
 
 int str_len(char* str);
 
-int str_compare(int n,char* s1, int start1, char* s2, int start2);
+int str_compare(int n, char* s1, int start1, char* s2, int start2);
 
 int str_contains(char* str, char testStr[]);
 
 int str_findIndex(char* str, char c);
 
-char* str_substring(char* s,char* str,int start, int end);
+char* str_substring(char* s, char* str, int start, int end);
 
 void str_set(char* arr, char string[]);
 
@@ -67,7 +67,7 @@ struct Item {
 
 typedef struct Item Item;
 
-struct Map{
+struct Map {
     Item* start;
     int count;
 };
@@ -76,7 +76,7 @@ typedef struct Map Map;
 
 void map_init(Map* map);
 
-Item* map_getItem(Map* map,char key[]);
+Item* map_getItem(Map* map, char key[]);
 
 Item* map_lastItem(Map* map);
 
@@ -92,16 +92,16 @@ Item* map_forEach(Map* map);
 
 void map_print(Map* map);
 
-struct listNode{
-void* data;
-struct listNode* next;
+struct listNode {
+    void* data;
+    struct listNode* next;
 };
 
 typedef struct listNode ListNode;
 
-struct list{
-ListNode* start;
-int count;
+struct list {
+    ListNode* start;
+    int count;
 };
 
 typedef struct list List;
@@ -116,7 +116,7 @@ int list_init(List* store);
 
 int list_cleanup(List* store);
 
-struct Buffer{
+struct Buffer {
     char* data;
     int size;
     int capacity;
