@@ -143,9 +143,11 @@ You don't have to set up tunnels for each device that you might want to ssh into
 HomeNet is in its early stage of development, though the application compiles runs as expected, you might encounter bugs. Please report them in the issues. Looking forward I would love to hear your inputs/suggestions on this project. Any help either in form of criticism, contributions, and suggestions is highly appreciated. Mainly these are the topics I need to work on next:
 
 - Implementing client libraries and a gateway server for HTTP. The routing URL will be sent as an HTTP header in the request. This should support WebSockets too.
-- Better documentation especially about the initial handshake.
+- Better documentation especially about the initial handshake and mDNS service.
 - Better support for IPv6 in the code.
 - Windows support.
 - Use `union` type for structs like `hn_Socket` and `hn_Config`.
 - Better logging.
 - Support for daemonizing the program.
+- Add encryption options using salt, since salt is preshared and never passed directly, we can use it for symmetric encryption.
+- Add support for a holePunching option during initial handshake so that both sides can connect to each other directly. It would be using something like webRTC and basically act as a signaling server.
