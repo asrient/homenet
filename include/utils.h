@@ -1,3 +1,8 @@
+/*
+* The HomeNet Project
+* @ASRIENT [https://asrient.github.io/]
+*/
+
 #ifndef HN_UTILS_H
 #define HN_UTILS_H
 

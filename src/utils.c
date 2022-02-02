@@ -1,3 +1,8 @@
+/*
+* The HomeNet Project
+* @ASRIENT [https://asrient.github.io/]
+*/
+
 #include "../include/utils.h"
 
 #include <ctype.h>

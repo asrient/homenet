@@ -1,3 +1,8 @@
+/*
+* The HomeNet Project
+* @ASRIENT [https://asrient.github.io/]
+*/
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <time.h>

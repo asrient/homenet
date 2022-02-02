@@ -1,3 +1,8 @@
+/*
+* The HomeNet Project
+* @ASRIENT [https://asrient.github.io/]
+*/
+
 #include <arpa/inet.h>
 #include <stdio.h>
 #include <stdlib.h>
