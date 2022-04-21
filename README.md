@@ -2,9 +2,9 @@
 
 #### [early-stage implementation]
 
-HomeNet is a zero-configuration TCP reverse proxy server that exposes all your localhost servers to the public internet so that you can access all your local servers and services remotely. You don't have to tunnel each of your local servers separately.
+HomeNet is a zero-configuration TCP reverse proxy server that exposes all your local network servers to the public internet so that you can access all your local servers and services remotely. You don't have to tunnel each of your local servers separately.
 
-## How to expose my localhost using HomeNet
+## How to expose my local network using HomeNet
 
 - Start a HomeNet instance on any supported device in your home. Read about how to install and run homenet in the `Usage` section.
 - Once your homeNet bridge is up and running, you have to expose this instance to the internet, for this you have 3 options:
