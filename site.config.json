@@ -3,5 +3,5 @@
     "description": "HomeNet is a TCP reverse-proxy that let’s users open a tunnel to any server inside it’s private network dynamically.",
     "iconPath": "img/icon.png",
     "docsPath": "docs",
-    "accentColor": "blue"
+    "accentColor": "violet"
 }
